@@ -15,7 +15,7 @@ from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, Weapon, arm_
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
 from import_assets import GODOT_WEAPON_CLIPS
 from bake_multirig_material import bake_material
-from retarget_godot_arms import ArmGuide, GripRetarget, ease, moderate_inspection, pin_hand, seat_fingers
+from retarget_godot_arms import ArmGuide, GripRetarget, deagle_inspection, ease, pin_hand, seat_fingers
 from fit_godot_grip import SurfaceGrip
 
 # This mesh references an auxiliary joint absent from the distributed rig.
@@ -273,6 +273,7 @@ def build(assets, output, weapon_name):
         right_seat = idle_pose['weapon_offset'].inverted() @ idle_pose['RightHand']
         left_seat = idle_pose['weapon_offset'].inverted() @ idle_pose['LeftHand']
         bolt_cycle = weapon_name == 'awp' and name == 'shoot1'
+        deagle_look = weapon_name == 'deagle' and name == 'lookat01'
         reverse_grip = None
         if knife and name == 'heavy_miss1':
             # The stab opens with an authored reverse grip; fit that grip
@@ -291,8 +292,8 @@ def build(assets, output, weapon_name):
                 # Lock the first AWP recoil frames, not the hand reaching for its bolt.
                 release = min(1.0, max(0.0, (i - 6) / 8)) if bolt_cycle else 0.0
                 recoil_mix = 1.0 - release * release * (3.0 - 2.0 * release)
-                if weapon_name == 'deagle' and name == 'lookat01':
-                    moderate_inspection(pose, idle_pose)
+                if deagle_look:
+                    deagle_inspection(pose, idle_pose, i / max(1, len(poses) - 1))
                 retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle,
                                lock_right=not (knife or bolt_cycle), recoil_mix=recoil_mix)
                 strength = 1.0
@@ -306,10 +307,10 @@ def build(assets, output, weapon_name):
                         strength = 1.0
                     pin_hand(pose, idle_pose, 'Right', strength)
                 if name != 'shoot1' or (bolt_cycle and release > 0.0):
-                    right_limit = 32 if weapon_name == 'deagle' and name == 'lookat01' else 50 if not knife else 49
+                    right_limit = 32 if deagle_look else 50 if not knife else 49
                     guide.apply(pose, 'Right', right_limit)
                     guide.apply(pose, 'Left', 63, 20)
-                    if name != 'shoot1':
+                    if name != 'shoot1' and not deagle_look:
                         grip['Right'].apply(pose, strength)
                         seat_fingers(pose, idle_pose, strength * .86)
                         if reverse_grip:

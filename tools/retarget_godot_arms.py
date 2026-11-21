@@ -1,7 +1,7 @@
-"""Stabilize first-person arm rotations without modifying the authored weapon tracks."""
+"""Stabilize first-person grips and guide the Desert Eagle presentation."""
 import math
 
-from mathutils import Quaternion
+from mathutils import Quaternion, Vector
 
 from build_viewmodel import arm_names
 
@@ -110,25 +110,47 @@ def seat_fingers(pose, idle, strength):
             pose[name] = pose[name].lerp(frame @ idle[name], strength)
 
 
-def moderate_inspection(pose, idle):
-    """Retain the Deagle's inspection beats without the near-upside-down flip."""
-    old = pose['weapon_offset']
-    anchor = idle['weapon_offset']
-    base = anchor.to_quaternion()
-    authored = old.to_quaternion()
-    angle = 2.0 * math.acos(min(1.0, abs(base.dot(authored))))
-    knee, tail = math.radians(66), math.radians(40)
-    if angle <= knee:
-        return
-    reduced = knee + tail * (1.0 - math.exp(-(angle - knee) / tail))
-    # Rotate the presentation around the current grip, not around the muzzle.
-    pivot = pose['RightHand'].translation
-    rotation = base.slerp(authored, reduced / angle)
-    delta = transform(rotation, old.translation) @ old.inverted()
-    delta.translation += pivot - delta @ pivot
-    for name in ('weapon_offset', 'slide', 'clip', 'hammer', 'trigger', *arm_names('Left'), *arm_names('Right')):
-        if name in pose:
-            pose[name] = delta @ pose[name]
+# Phase, yaw/pitch/roll in Studio space, grip offset in inches.
+# Show both sides of the receiver without ever bringing the arm in from above.
+DEAGLE_INSPECTION = (
+    (0.00, (0, 0, 0), (0, 0, 0)),
+    (0.15, (32, -22, -14), (0.6, 0.5, 0.5)),
+    (0.32, (55, -29, -19), (0.9, 1.1, 1.1)),
+    (0.43, (48, -33, -13), (0.8, 1.0, 1.0)),
+    (0.63, (-44, -28, 17), (0.6, 0.6, 1.1)),
+    (0.77, (-52, -24, 20), (0.6, 0.7, 1.2)),
+    (0.94, (0, 0, 0), (0, 0, 0)),
+    (1.00, (0, 0, 0), (0, 0, 0)),
+)
+
+
+def deagle_inspection(pose, idle, phase):
+    """Guide two readable checks around the seated palm instead of flipping the gun."""
+    def rotation(angles):
+        yaw, pitch, roll = map(math.radians, angles)
+        return (Quaternion((0, 0, 1), yaw) @ Quaternion((0, 1, 0), pitch)
+                @ Quaternion((1, 0, 0), roll))
+
+    for (start, angles, offset), (end, next_angles, next_offset) in zip(DEAGLE_INSPECTION, DEAGLE_INSPECTION[1:]):
+        if phase <= end:
+            weight = ease((phase - start) / (end - start))
+            turn = rotation(angles).slerp(rotation(next_angles), weight)
+            shift = Vector(offset).lerp(Vector(next_offset), weight)
+            break
+    pivot = idle['RightHand'].translation
+    motion = transform(turn, pivot + shift - turn @ pivot)
+    delta = motion @ idle['weapon_offset'] @ pose['weapon_offset'].inverted()
+    for name in ('weapon_offset', 'slide', 'clip', 'hammer', 'trigger'):
+        pose[name] = delta @ pose[name]
+    for name in arm_names('Right'):
+        # Keep the elbow behind the gun, not on the source clip's flip path.
+        pose[name] = idle[name] if name in ('RightArm', 'RightForeArm') else motion @ idle[name]
+    release = ease(phase / .16) * (1.0 - ease((phase - .76) / .16))
+    offhand = Vector((-.8, 1.0, -2.2)) * release
+    for name in arm_names('Left'):
+        pose[name] = idle[name].copy()
+        if name not in ('LeftArm', 'LeftForeArm'):
+            pose[name].translation += offhand
 
 
 class ArmGuide:

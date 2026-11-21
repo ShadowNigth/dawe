@@ -175,6 +175,11 @@ def verify_wrist_and_grip_limits(doc, model, weapon):
                 assert step < 23.0, (weapon, name, side, 'wrist discontinuity', step)
             if name.startswith('lookat'):
                 worst[side] = max(worst[side], angle)
+        if weapon == 'deagle' and name == 'lookat01':
+            palm = pose['RightHand'][:, :3, 3]
+            elbow = pose['RightForeArm'][:, :3, 3]
+            assert np.all(elbow[:, 1] < palm[:, 1]), 'Deagle elbow rises above the grip during inspection'
+            assert np.all(elbow[:, 2] > palm[:, 2]), 'Deagle elbow extends in front of the grip'
         anchored = name in ('idle1', 'idle2', 'light_miss1', 'light_miss2') if weapon == 'bayonet' else name != 'idle'
         if anchored:
             held = np.linalg.inv(pose['weapon_offset']) @ pose['RightHand']
