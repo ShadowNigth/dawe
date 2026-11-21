@@ -1,21 +1,8 @@
 extends Node
 
 const DIR := "res://generated/audio/"
-const ACTIONS := {
-	"usp-s/draw": [[0.10, "usp_draw"]],
-	"usp-s/shoot1": [[0.0, "usp1"]],
-	"usp-s/reload": [[0.21, "usp_clipout"], [0.52, "usp_clipin"], [0.72, "usp_slideback"], [0.84, "usp_sliderelease"]],
-	"usp-s/silencer_attach": [[0.08, "gear-1"], [0.37, "gear-2"], [0.69, "gear-3"]],
-	"usp-s/silencer_detach": [[0.11, "gear-1"], [0.40, "gear-2"], [0.79, "gear-3"]],
-	"ak-47/draw": [[0.12, "ak47_draw"]],
-	"ak-47/shoot1": [[0.0, "ak47-1"]],
-	"ak-47/reload": [[0.19, "ak47_clipout"], [0.52, "ak47_clipin"], [0.80, "ak47_boltpull"]],
-	"bayonet/draw": [[0.14, "knife-deploy"]],
-	"bayonet/lookat01_draw": [[0.09, "knife-deploy"]],
-	"bayonet/light_miss1": [[0.15, "knife-swing1"]],
-	"bayonet/light_miss2": [[0.16, "knife-swing2"]],
-	"bayonet/heavy_miss1": [[0.22, "knife-stab"]],
-}
+const Assets = preload("res://scripts/assets.gd")
+const SHOTS := {"usp-s": "usp1", "ak-47": "ak47-1", "m4a4": "m4a1-1"}
 
 var sounds: Dictionary = {}
 var voices: Array[AudioStreamPlayer] = []
@@ -25,9 +12,10 @@ var ambience := AudioStreamPlayer.new()
 var pending: Array = []
 var next_cue := 0
 var action_key := ""
-var suppressed := false
+var action_cues: Dictionary = {}
 
 func _ready() -> void:
+	action_cues = Assets.read_json("weapon-sound-cues")
 	# Browser builds use Web Audio samples; Dummy/headless has no sample backend.
 	var playback := AudioServer.PLAYBACK_TYPE_STREAM
 	if OS.has_feature("web") and DisplayServer.get_name() != "headless":
@@ -67,7 +55,7 @@ func get_sound(id: String) -> AudioStreamWAV:
 		sounds[id] = stream
 	return sounds[id]
 
-func cue(id: String, gain := -11.0, pitch := 1.0) -> void:
+func cue(id: String, gain := -11.0) -> void:
 	var stream := get_sound(id)
 	if stream == null:
 		return
@@ -75,18 +63,25 @@ func cue(id: String, gain := -11.0, pitch := 1.0) -> void:
 	voice_cursor = (voice_cursor + 1) % voices.size()
 	voice.stream = stream
 	voice.volume_db = gain
-	voice.pitch_scale = pitch
 	voice.play()
 
-func step(sand: bool, quiet: bool) -> void:
+func step(sand: bool) -> void:
 	step_index = step_index % 4 + 1
-	cue("step-%s-%d" % ["sand" if sand else "concrete", step_index], -22.0 if quiet else -14.0)
+	cue("step-%s-%d" % ["sand" if sand else "concrete", step_index], -14.0)
+
+static func shot_sample(id: String, with_silencer: bool) -> String:
+	if id == "usp-s" and not with_silencer:
+		return "usp-unsuppressed"
+	return SHOTS.get(id, "")
 
 func start_clip(id: String, clip: String, with_silencer: bool) -> void:
 	action_key = id + "/" + clip
-	pending = ACTIONS.get(action_key, [])
+	pending = action_cues.get(action_key, [])
+	if clip == "shoot1":
+		var shot := shot_sample(id, with_silencer)
+		var level := -18.0 if id == "usp-s" and with_silencer else -9.0
+		pending = [[0.0, shot, level]] if not shot.is_empty() else []
 	next_cue = 0
-	suppressed = with_silencer
 	follow_clip(id, clip, 0.0)
 
 func follow_clip(id: String, clip: String, fraction: float) -> void:
@@ -94,8 +89,6 @@ func follow_clip(id: String, clip: String, fraction: float) -> void:
 		pending = []
 		return
 	while next_cue < pending.size() and fraction >= float(pending[next_cue][0]):
-		var sample: String = pending[next_cue][1]
-		var shot := clip == "shoot1"
-		var quiet_shot := shot and id == "usp-s" and suppressed
-		cue("usp1-muted" if quiet_shot else sample, -17.0 if quiet_shot else -9.0 if shot else -13.0, 0.88 if quiet_shot else 1.0)
+		var event: Array = pending[next_cue]
+		cue(String(event[1]), float(event[2]))
 		next_cue += 1

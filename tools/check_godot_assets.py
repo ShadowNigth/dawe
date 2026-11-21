@@ -8,7 +8,7 @@ import struct
 import numpy as np
 
 from build_agents import GLTF, rotation
-from import_assets import AGENT_CLIPS, ROOT, GODOT_WEAPON_CLIPS, WEAPON_CLIPS
+from import_assets import AGENT_CLIPS, ROOT, GODOT_WEAPON_CLIPS
 
 
 def read(path):
@@ -165,7 +165,7 @@ def main():
         print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
         if args.quality_viewmodels and name in GODOT_WEAPON_CLIPS:
             verify_quality(doc, glb, bayonet=name == 'bayonet')
-            if name in WEAPON_CLIPS:
+            if name != 'bayonet':
                 verify_grips(doc, glb)
         if name == 'bayonet':
             blade, = (surf for mesh in doc['meshes'] for surf in mesh['primitives']

@@ -9,7 +9,7 @@ const TeamMenu = preload("res://scripts/team_menu.gd")
 const DroppedWeapon = preload("res://scripts/dropped_weapon.gd")
 const Soundscape = preload("res://scripts/soundscape.gd")
 const DustCollision = preload("res://scripts/dust_collision.gd")
-const WEAPON_SLOTS := ["ak-47", "usp-s", "bayonet"]
+const WEAPON_SLOTS := ["ak-47", "usp-s", "bayonet", "m4a4"]
 
 var actor := Actor.new()
 var world := World.new()
@@ -58,8 +58,8 @@ func capture_mouse() -> void:
 
 func bindings() -> void:
 	var keys := {"forward": KEY_W, "back": KEY_S, "left": KEY_A, "right": KEY_D,
-		"run": KEY_SHIFT, "crouch": KEY_CTRL, "jump": KEY_SPACE, "team": KEY_M,
-		"ak": KEY_1, "usp": KEY_2, "knife": KEY_3, "camera": KEY_V, "reload": KEY_R, "inspect": KEY_F,
+		"walk": KEY_SHIFT, "crouch": KEY_CTRL, "jump": KEY_SPACE, "team": KEY_M,
+		"ak": KEY_1, "usp": KEY_2, "knife": KEY_3, "m4a4": KEY_4, "camera": KEY_V, "reload": KEY_R, "inspect": KEY_F,
 		"drop": KEY_G, "pickup": KEY_E,
 		"silencer": KEY_T, "reset": KEY_BACKSPACE, "radar": KEY_TAB}
 	for action: String in keys:
@@ -77,7 +77,8 @@ func bindings() -> void:
 func equip_weapon(id: String) -> void:
 	if id == viewmodel.weapon_id or dropped.has(id):
 		return
-	actor.stance = "pistol" if id == "usp-s" else "rifle" if id == "ak-47" else "knife"
+	actor.stance = "pistol" if id == "usp-s" else "rifle" if id in ["ak-47", "m4a4"] else "knife"
+	actor.equipped_weapon = id
 	viewmodel.select(id)
 
 func cycle_weapon(step: int) -> void:
@@ -169,10 +170,10 @@ func pickup_weapon() -> void:
 func on_clip_started(id: String, clip: String) -> void:
 	soundscape.start_clip(id, clip, viewmodel.usp_attached)
 
-func on_footstep(quiet: bool) -> void:
+func on_footstep() -> void:
 	var feet := actor.global_position
 	# The local demo approximates the sandy pit by location; no material ray map.
-	soundscape.step(world.dust2 and feet.x > 30.0 and feet.y < -2.0 and feet.z > -22.0, quiet)
+	soundscape.step(world.dust2 and feet.x > 30.0 and feet.y < -2.0 and feet.z > -22.0)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if team_menu.visible:
@@ -212,6 +213,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		equip_weapon("ak-47")
 	if event.is_action_pressed("knife"):
 		equip_weapon("bayonet")
+	if event.is_action_pressed("m4a4"):
+		equip_weapon("m4a4")
 	if event.is_action_pressed("camera"):
 		actor.third_person = not actor.third_person
 	if event.is_action_pressed("inspect"):
@@ -319,7 +322,7 @@ func refresh_hud() -> void:
 	var camera_mode := "3.ª persona" if actor.third_person else "1.ª persona"
 	var weapon_label := "MANOS VACÍAS" if viewmodel.weapon_id.is_empty() else weapon_name(viewmodel.weapon_id).to_upper()
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), weapon_label, camera_mode]
-	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2/3 o rueda: arma  ·  M equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
+	hint.text = "WASD mover  ·  Shift caminar  ·  Ctrl agachar  ·  Espacio saltar\n1/2/3/4 o rueda: arma  ·  M equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
 	if viewmodel.weapon_id == "bayonet":
 		hint.text += "\nBayoneta · Clic izquierdo tajo · Clic derecho estocada"
 	elif viewmodel.silencer != null:

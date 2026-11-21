@@ -1,5 +1,7 @@
 extends SceneTree
 
+const Movement = preload("res://scripts/source_movement.gd")
+
 var failures: PackedStringArray = []
 
 func _initialize() -> void:
@@ -38,6 +40,7 @@ func run() -> void:
 		check(not sw.world.dust2, "training fixture")
 		await locomotion(sw)
 		await chase_camera(sw)
+		movement_math()
 		await movement_response(sw)
 		await steps_and_ledge(sw)
 	print("Dawe: ", failures.size(), " failures")
@@ -64,7 +67,7 @@ func agents(sw: Node) -> void:
 			check(pose_changes(sw.actor.avatar, player, "run_ne_pistol"), "%s locomotion moves the rig" % id)
 
 func weapons(sw: Node) -> void:
-	for id in ["usp-s", "ak-47"]:
+	for id in ["usp-s", "ak-47", "m4a4"]:
 		sw.viewmodel.select(id, false)
 		var player: AnimationPlayer = sw.viewmodel.animation_player
 		check(player != null, "%s skinned viewmodel" % id)
@@ -175,7 +178,9 @@ func bayonet_actions(sw: Node) -> void:
 	vm.animation_player.advance(2.0)
 	check(vm.inspect() and vm.active_clip == "lookat01", "normal bayonet inspection")
 	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "ak-47", "weapon wheel wraps from bayonet back to the rifle")
+	check(vm.weapon_id == "m4a4", "weapon wheel reaches the M4A4 from the bayonet")
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "ak-47", "weapon wheel wraps from M4A4 to AK-47")
 
 
 func has_texture(node: Node) -> bool:
@@ -244,7 +249,6 @@ func recoil_keeps_grip(model: Node, player: AnimationPlayer) -> bool:
 
 func locomotion(sw: Node) -> void:
 	Input.action_press("forward")
-	Input.action_press("run")
 	await ticks(162)
 	var top: Vector3 = sw.actor.global_position
 	check(top.z < -10.8 and top.y > 1.35 and sw.actor.is_on_floor(), "cross doors and climb 1.5 m ramp")
@@ -252,13 +256,12 @@ func locomotion(sw: Node) -> void:
 	check(sw.actor.global_position.z > -14.6 and sw.actor.global_position.z < -13.9, "wall blocks movement")
 	Input.action_release("forward")
 	Input.action_press("back")
-	await ticks(150)
+	await ticks(143)
 	check(sw.actor.global_position.y < 0.20 and sw.actor.is_on_floor(), "descend and snap to floor")
-	Input.action_release("run")
 	Input.action_release("back")
 	Input.action_press("crouch")
 	await ticks(18)
-	check(sw.actor.crouched and sw.actor.capsule.height < 1.0, "crouch collider")
+	check(sw.actor.crouched and is_equal_approx(sw.actor.capsule.height, 54.0 * Movement.METERS), "crouch collider")
 	Input.action_release("crouch")
 	await ticks(6)
 	check(not sw.actor.crouched and sw.actor.capsule.height > 1.7, "recover standing collider")
@@ -272,7 +275,7 @@ func locomotion(sw: Node) -> void:
 	check(sw.actor.is_on_floor(), "lands after jump")
 	Input.action_press("crouch")
 	await ticks(2)
-	sw.world.block(Vector3(0, 1.35, 2), Vector3(2, 0.30, 2), Color.WHITE)
+	sw.world.block(Vector3(0, 1.58, 2), Vector3(2, 0.30, 2), Color.WHITE)
 	await ticks(2)
 	Input.action_release("crouch")
 	await ticks(3)
@@ -294,6 +297,20 @@ func chase_camera(sw: Node) -> void:
 	await ticks(2)
 	check(sw.actor.camera.global_position.distance_to(eye) < 0.08, "first person camera stays at eye height")
 
+func movement_math() -> void:
+	var dt := 1.0 / 60.0
+	var max_run := Movement.max_speed("ak-47")
+	check(is_equal_approx(max_run, 5.461) and Movement.max_speed("m4a4") > max_run
+		and Movement.max_speed("bayonet") > Movement.max_speed("usp-s"), "CS2 speed depends on weapon")
+	var initial := Vector2(0.0, -max_run)
+	var glide := Movement.accelerate(initial, Vector2.ZERO, 0.0, max_run, 1.0, dt, true)
+	var counter := Movement.accelerate(initial, Vector2.DOWN, 1.0, max_run, 1.0, dt, true)
+	check(counter.length() < glide.length(), "counter-strafe brakes faster than releasing the key")
+	var airborne := initial
+	for i in 30:
+		airborne = Movement.accelerate(airborne, Vector2.RIGHT, 1.0, max_run, 1.0, dt, false)
+	check(is_equal_approx(airborne.x, 0.762) and is_equal_approx(airborne.y, initial.y), "air strafe only caps projected speed")
+
 func movement_response(sw: Node) -> void:
 	var player = sw.actor
 	sw.world.block(Vector3(60, -0.3, 0), Vector3(16, 0.6, 24), Color.WHITE)
@@ -303,21 +320,25 @@ func movement_response(sw: Node) -> void:
 	await ticks(20)
 	Input.action_press("crouch")
 	await ticks(2)
-	check(player.crouched and player.eye_height < 1.62 and player.eye_height > 0.79, "camera eases into crouching while the capsule shrinks")
-	await ticks(12)
-	check(is_equal_approx(player.eye_height, 0.79), "camera reaches crouch eye height")
+	check(player.crouched and player.eye_height < 1.62 and player.eye_height > 46.0 * Movement.METERS, "camera eases into crouching while the capsule shrinks")
+	await ticks(20)
+	check(absf(player.eye_height - 46.0 * Movement.METERS) < 0.006, "camera reaches crouch eye height")
 	Input.action_release("crouch")
 	await ticks(14)
 	Input.action_press("forward")
-	Input.action_press("run")
 	await ticks(18)
 	var launch_speed: float = absf(player.velocity.z)
-	check(launch_speed > 5.0, "gets to running pace promptly")
+	check(launch_speed > 5.0, "WASD runs without holding Shift")
+	Input.action_press("walk")
+	await ticks(20)
+	check(absf(absf(player.velocity.z) - Movement.max_speed(player.equipped_weapon) * 0.52) < 0.15, "Shift limits speed to walk pace")
+	Input.action_release("walk")
+	await ticks(18)
+	launch_speed = absf(player.velocity.z)
 	Input.action_press("jump")
 	await ticks(2)
 	Input.action_release("jump")
 	Input.action_release("forward")
-	Input.action_release("run")
 	await ticks(6)
 	check(not player.is_on_floor() and absf(absf(player.velocity.z) - launch_speed) < 0.15, "airborne release keeps takeoff momentum")
 	Input.action_press("right")
@@ -328,10 +349,10 @@ func movement_response(sw: Node) -> void:
 		if player.is_on_floor():
 			break
 		await ticks(1)
-	await ticks(16)
+	await ticks(34)
 	check(player.velocity.length() < 0.15, "ground friction stops the player after landing")
 
-	# Request a second jump shortly before touching ground; it fires on landing.
+	# Default profile does not queue a jump held before touching ground.
 	Input.action_press("jump")
 	await ticks(2)
 	Input.action_release("jump")
@@ -340,10 +361,9 @@ func movement_response(sw: Node) -> void:
 			break
 		await ticks(1)
 	Input.action_press("jump")
-	await ticks(2)
+	await ticks(14)
+	check(player.is_on_floor(), "holding jump through landing does not auto-hop")
 	Input.action_release("jump")
-	await ticks(6)
-	check(not player.is_on_floor() and player.velocity.y > 2.0, "jump pressed before landing is buffered")
 
 	# Run off an isolated raised edge and then jump after the floor flag clears.
 	sw.world.block(Vector3(90, 0.7, 0), Vector3(4, 0.6, 3), Color.WHITE)
@@ -351,7 +371,6 @@ func movement_response(sw: Node) -> void:
 	player.reset_motion()
 	await ticks(20)
 	Input.action_press("forward")
-	Input.action_press("run")
 	for frame in 60:
 		await ticks(1)
 		if not player.is_on_floor():
@@ -361,8 +380,7 @@ func movement_response(sw: Node) -> void:
 	await ticks(2)
 	Input.action_release("jump")
 	Input.action_release("forward")
-	Input.action_release("run")
-	check(player.velocity.y > 2.0, "jump works just after leaving a ledge")
+	check(player.velocity.y < 1.0, "jump requires ground contact")
 
 func steps_and_ledge(sw: Node) -> void:
 	var player = sw.actor
@@ -383,8 +401,10 @@ func steps_and_ledge(sw: Node) -> void:
 	check(player.is_on_floor() and player.global_position.y > 0.96 and player.global_position.z < -3.1, "walks up five risers without jumping")
 	check(player.global_position.z > -4.95, "step assist does not climb the tall wall")
 	Input.action_press("back")
+	Input.action_press("walk")
 	await ticks(140)
 	Input.action_release("back")
+	Input.action_release("walk")
 	check(player.is_on_floor() and player.global_position.y < 0.08 and player.global_position.z > 0.45, "walks down the steps without getting stuck")
 
 	# This obstacle is higher than the old 0.68 m jump, but below the new apex.
@@ -415,7 +435,7 @@ func jump_animation(sw: Node) -> void:
 	await ticks(3)
 	Input.action_release("jump")
 	check(player.current_clip == "jump/rise_knife", "jump pose follows actual takeoff")
-	await ticks(20)
+	await ticks(24)
 	check(player.current_clip == "jump/fall_knife", "jump uses a distinct descending pose")
 	for i in 40:
 		if player.is_on_floor():
@@ -445,7 +465,7 @@ func presentation(sw: Node) -> void:
 	sw.team_menu.chose.emit("sas")
 	check(sw.actor.agent_id == "sas", "CT selection loads SAS")
 	check(sw.soundscape.ambience.stream != null, "wind ambience loads")
-	for cue in ["ak47-1", "ak47_clipin", "usp1-muted", "knife-swing1", "knife-stab", "step-concrete-1", "step-sand-4", "jump", "land"]:
+	for cue in ["ak47-1", "ak47_clipin", "usp1", "usp-unsuppressed", "m4a1-1", "m4a1_clipin", "suppressor-1-silencerscrew2", "knife-swing1", "knife-stab", "step-concrete-1", "step-sand-4", "jump", "land"]:
 		var stream: AudioStream = sw.soundscape.get_sound(cue)
 		check(stream != null and stream.get_length() > 0.03, "sound loads: " + cue)
 	key_press(sw, KEY_2)
@@ -463,9 +483,20 @@ func presentation(sw: Node) -> void:
 	check(vm.weapon_id == "usp-s" and sw.actor.agent_id == "sas", "2 equips pistol, not a team")
 	key_press(sw, KEY_3)
 	check(vm.weapon_id == "bayonet", "3 equips knife")
+	key_press(sw, KEY_4)
+	check(vm.weapon_id == "m4a4" and sw.actor.equipped_weapon == "m4a4", "4 equips M4A4 and updates movement speed")
+	vm.animation_player.advance(2.0)
+	vm.primary_action()
+	check(sw.soundscape.pending[0][1] == "m4a1-1", "M4A4 fires its own unsuppressed sample")
 	key_press(sw, KEY_2)
-	vm.usp_attached = false
-	vm.attached = false
+	vm.animation_player.advance(2.0)
+	vm.primary_action()
+	check(sw.soundscape.pending[0][1] == "usp1", "attached USP-S uses the native silenced shot")
+	vm.animation_player.advance(2.0)
+	vm.toggle_silencer()
+	vm.animation_player.advance(6.0)
+	vm.primary_action()
+	check(sw.soundscape.pending[0][1] == "usp-unsuppressed", "detached USP-S uses a separate open shot")
 	var sand := Color("bda17e")
 	sw.world.block(Vector3(120, -0.3, 120), Vector3(12, 0.6, 12), sand)
 	sw.actor.global_position = Vector3(120, 0.05, 120)
@@ -473,10 +504,14 @@ func presentation(sw: Node) -> void:
 	sw.actor.reset_motion()
 	await ticks(12)
 	var steps_before: int = sw.soundscape.step_index
+	Input.action_press("walk")
 	Input.action_press("forward")
+	await ticks(32)
+	check(sw.soundscape.step_index == steps_before, "Shift walking does not trigger footsteps")
+	Input.action_release("walk")
 	await ticks(27)
 	Input.action_release("forward")
-	check(sw.soundscape.step_index != steps_before, "actual walking distance triggers a footstep")
+	check(sw.soundscape.step_index != steps_before, "actual running distance triggers a footstep")
 	key_press(sw, KEY_G)
 	check(sw.dropped.has("usp-s") and vm.weapon_id != "usp-s", "G leaves the selected gun on the ground and equips another slot")
 	key_press(sw, KEY_2)
@@ -492,7 +527,6 @@ func presentation(sw: Node) -> void:
 	await ticks(4)
 	key_press(sw, KEY_E)
 	check(not sw.dropped.has("usp-s") and vm.weapon_id == "usp-s" and not vm.attached, "E recovers the nearby gun and its silencer state")
-	key_press(sw, KEY_G)
-	key_press(sw, KEY_G)
-	key_press(sw, KEY_G)
-	check(vm.weapon_id.is_empty() and sw.dropped.size() == 3, "dropping all slots leaves empty hands")
+	for i in 4:
+		key_press(sw, KEY_G)
+	check(vm.weapon_id.is_empty() and sw.dropped.size() == 4, "dropping all slots leaves empty hands")

@@ -3,6 +3,9 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import struct
+import subprocess
+import tempfile
 
 import bpy
 from mathutils import Matrix
@@ -17,7 +20,34 @@ from fit_godot_grip import RightGrip
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
+M4A4 = Weapon('m4a4', 'rif_m4a1', ('weapon_offset', 'bolt', 'clip', 'trigger'))
 BAYONET = Weapon('bayonet', 'Bayonet worn steel and olive grip', ('weapon_offset',))
+
+
+def import_weapon_mesh(path):
+    with path.open('rb') as source:
+        source.seek(12)
+        size, _ = struct.unpack('<II', source.read(8))
+        doc = json.loads(source.read(size))
+    if 'EXT_meshopt_compression' not in doc.get('extensionsUsed', []):
+        return import_gltf(path)
+    with tempfile.TemporaryDirectory(prefix='dawe-meshopt-') as temp:
+        folder = Path(temp)
+        layout, data = folder / 'mesh.json', folder / 'mesh.bin'
+        decoder = ROOT / 'tools/agent_assets/decode_meshopt.mjs'
+        subprocess.run(['node', str(decoder), str(path), str(layout), str(data)], check=True)
+        doc = json.loads(layout.read_bytes())
+        for key in ('extensionsUsed', 'extensionsRequired'):
+            if 'EXT_meshopt_compression' in doc.get(key, []):
+                doc[key].remove('EXT_meshopt_compression')
+        json_chunk = json.dumps(doc, separators=(',', ':')).encode()
+        json_chunk += b' ' * (-len(json_chunk) % 4)
+        binary = data.read_bytes()
+        glb = folder / path.name
+        glb.write_bytes(struct.pack('<4sII', b'glTF', 2, 28 + len(json_chunk) + len(binary))
+                        + struct.pack('<I4s', len(json_chunk), b'JSON') + json_chunk
+                        + struct.pack('<I4s', len(binary), b'BIN\0') + binary)
+        return import_gltf(glb)
 
 
 def linked_weights(vertex, names, ids, default):
@@ -112,7 +142,7 @@ def build(assets, output, weapon_name):
     if output.exists():
         raise FileExistsError(output)
     knife = weapon_name == 'bayonet'
-    weapon = BAYONET if knife else WEAPONS[weapon_name]
+    weapon = {**WEAPONS, 'bayonet': BAYONET, 'm4a4': M4A4}[weapon_name]
     cs2go = assets / 'cs2go'
     mesh_path = cs2go / ('bayonet.glb' if knife else f'viewmodels/{weapon_name}.glb')
     clips = cs2go / (f'animations/{weapon_name}' if knife else f'viewmodels/{weapon_name}')
@@ -142,7 +172,7 @@ def build(assets, output, weapon_name):
             for name in parents if name != 'root'}
     parents.update({name: 'root' if name == 'weapon_offset' else 'weapon_offset' for name in weapon.parts})
     ids = {name: i for i, name in enumerate(parents)}
-    gun, = (obj for obj in import_gltf(mesh_path).values() if obj.type == 'MESH'
+    gun, = (obj for obj in import_weapon_mesh(mesh_path).values() if obj.type == 'MESH'
             and (knife or (obj.parent and obj.parent.type == 'ARMATURE')))
     idle = import_clip(clips / f'{idle_name}.glb')
     scene.frame_set(0)
@@ -198,7 +228,7 @@ def build(assets, output, weapon_name):
     for name in GODOT_WEAPON_CLIPS[weapon_name]:
         path = clips / f'{name}.glb'
         nodes = idle if name == idle_name else import_clip(path)
-        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=knife))
+        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=weapon_name in ('bayonet', 'm4a4')))
         retarget = GripRetarget(rest, idle_pose)
         def stable_poses():
             for i, pose in enumerate(poses):

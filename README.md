@@ -1,12 +1,12 @@
 # Dawe — prototipo de shooter en Godot 4
 
-**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S, AK-47 y bayoneta. Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
+**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S, AK-47, M4A4 y bayoneta. Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
 
 ## Descargar el proyecto con los activos incluidos
 
-**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Equipos-Audio-con-activos.zip?raw=true)**
+**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Movimiento-CS2-M4A4-con-activos.zip?raw=true)**
 
-El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, la USP-S, la AK-47 y la bayoneta con el brazo cromado de Silverhand y el implante de la mano derecha del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
+El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, la USP-S, la AK-47, la M4A4 y la bayoneta con el brazo cromado de Silverhand y el implante de la mano derecha del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
 
 ## Abrir el proyecto
 
@@ -14,20 +14,21 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 
 | Control | Acción |
 | --- | --- |
-| WASD / ratón | Mover / mirar |
-| Shift / Ctrl / Espacio | Correr / agacharse / saltar |
+| WASD / ratón | Correr / mirar |
+| Shift / Ctrl / Espacio | Caminar / agacharse / saltar |
 | M | Abrir el selector de equipos con logos (CT/SAS o T/Phoenix); se abre también al iniciar |
-| 1 / 2 / 3 / rueda | AK-47 / USP-S / bayoneta / recorrer armas disponibles |
+| 1 / 2 / 3 / 4 / rueda | AK-47 / USP-S / bayoneta / M4A4 / recorrer armas disponibles |
 | G / E | Soltar el arma equipada / recoger y equipar la más cercana al alcance |
 | V | Alternar entre primera y tercera persona |
 | Clic izquierdo / R / F | Disparo o tajo con la bayoneta / recarga / inspección (con bayoneta, F durante el desenfunde reproduce la variante) |
 | Clic derecho | Quitar o colocar el silenciador en la USP-S (también T) o reproducir la estocada con bayoneta |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
 
-## Salto, escalones y agarre
+## Movimiento, escalones y audio
 
 - SAS y Phoenix muestran despegue, descenso y aterrizaje en tercera persona. Las poses se generan para las tres posturas de arma y no empujan el cuerpo físico.
-- El salto conserva el impulso y permite alcanzar repisas más altas. Los escalones de hasta 34 cm se suben caminando si hay una superficie transitable y espacio para la cápsula. No se quitan las paredes ni los límites invisibles de Dust II.
+- El movimiento usa velocidades por arma, aceleración, fricción, salto y límite de dirección en el aire de referencia de CS2. WASD corre por defecto; Shift camina y Ctrl agacha. El salto no se repite al mantener Espacio. El prototipo conserva la cápsula y el ascenso de escalones de hasta 34 cm de Godot para el mapa; no replica subtick ni predicción online.
+- La USP-S usa el clip silenciado de origen con el silenciador puesto y un efecto sintetizado distinto cuando se lo saca. Desenfunde, recarga y silenciador usan las marcas de tiempo de los clips; los pasos de carrera van por distancia real y caminar/agacharse no emite pasos.
 - Los dedos de la mano derecha se ajustan a la forma de cada empuñadura antes del horneado. Los clips mantienen el agarre estabilizado durante el disparo.
 
 ## Instalar los activos locales
@@ -48,7 +49,7 @@ Esto genera `godot/generated/` con la **malla de Dust II**, su **colisión indep
 Para sumar los modelos de primera persona, con **Blender 4.5+** (con Cycles habilitado):
 
 ```sh
-for weapon in usp-s ak-47 bayonet; do
+for weapon in usp-s ak-47 bayonet m4a4; do
   blender --background --python-exit-code 1 --python tools/build_godot_viewmodel.py -- \
     --weapon "$weapon" --output "third_party_assets/${weapon}_bake"
   python3 tools/port_godot_viewmodel.py --weapon "$weapon" \
@@ -58,13 +59,13 @@ python3 tools/import_presentation.py        # logos y sonidos locales, incluye v
 python3 tools/build_weapon_drops.py         # mallas de suelo a partir de los GLB anteriores
 ```
 
-Se hornea el material por capas del brazo Silverhand y el implante del MultiRig para Godot. Se conserva la geometría original de brazos y arma, hasta cuatro pesos por vértice y los mapas de color, rugosidad/metalizado y normales que trae cada modelo, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, **5 para AK-47** y **8 para la bayoneta** (dos reposos, desenfunde, dos tajos, estocada y dos inspecciones). Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
+Se hornea el material por capas del brazo Silverhand y el implante del MultiRig para Godot. Se conserva la geometría original de brazos y arma, hasta cuatro pesos por vértice y los mapas de color, rugosidad/metalizado y normales que trae cada modelo, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, **5 para AK-47 y M4A4** (reposo, desenfunde, disparo, recarga e inspección) y **8 para la bayoneta** (dos reposos, desenfunde, dos tajos, estocada y dos inspecciones). Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
 
 ## Vista texturizada de Puertas Largas
 
-La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con el selector CT/T con sus logos. `V` muestra los brazos y el arma en primera persona. `1` / `2` / `3` equipan la AK-47, la USP-S y la bayoneta. `G` deja el arma física en el suelo y `E` la recoge desde cerca; si soltás las tres, quedás con las manos vacías. Los materiales y las animaciones se generan de los GLB preparados arriba, que están incluidos en el ZIP de `downloads/`. El ZIP para escritorio no duplica los GLB de armas ni agentes como `.vis`: Godot usa los GLB importados. El recorte y las armas de suelo sí incluyen sus propios `.vis`. El archivo automático de fuentes de GitHub es distinto.
+La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con el selector CT/T con sus logos. `V` muestra los brazos y el arma en primera persona. `1` / `2` / `3` / `4` equipan la AK-47, la USP-S, la bayoneta y la M4A4. `G` deja el arma física en el suelo y `E` la recoge desde cerca; si soltás todas, quedás con las manos vacías. Los materiales y las animaciones se generan de los GLB preparados arriba, que están incluidos en el ZIP de `downloads/`. El ZIP para escritorio no duplica los GLB de armas ni agentes como `.vis`: Godot usa los GLB importados. El ZIP incluye Dust II completo y los `.vis` de las armas de suelo; el recorte web se genera aparte. El archivo automático de fuentes de GitHub es distinto.
 
-Para reproducir ese recorte en Godot, después de generar `dust2.glb` y los cinco GLB de agentes y armas:
+Para reproducir ese recorte en Godot, después de generar `dust2.glb` y los seis GLB de agentes y armas:
 
 ```sh
 python3 tools/build_godot_preview.py
@@ -96,11 +97,12 @@ python3 tools/check_godot_assets.py --quality-viewmodels
 godot --headless --path godot --import
 godot --headless --path godot --script res://tests/smoke.gd -- --training
 godot --headless --path godot --script res://tests/smoke.gd -- --require-assets
+# Después de ejecutar tools/build_godot_preview.py:
 godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo y la tolerancia del salto al aterrizar o dejar un borde. También verifica cinco escalones, un salto a una repisa de 94 cm y que la cámara se retraiga al rozar una esquina. La prueba de Dust II recorre además la escalera real de Corta en ambas direcciones. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. También verifica los logos y el bloqueo del menú, los accesos 1/2/3, las señales de audio y el ciclo de tirar y recuperar la USP-S con su estado de silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
+La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo, velocidad por arma, contra-strafe y que el salto requiere contacto con el suelo. También verifica cinco escalones, un salto a una repisa de 94 cm y que la cámara se retraiga al rozar una esquina. La prueba de Dust II recorre además la escalera real de Corta en ambas direcciones. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. También verifica los logos y el bloqueo del menú, los accesos 1/2/3/4, las dos variantes de disparo de la USP-S, el sonido de la M4A4, las marcas de recarga y el ciclo de tirar y recuperar la USP-S con su estado de silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 
