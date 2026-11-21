@@ -108,4 +108,19 @@ func run() -> void:
 		return
 	ok = actor.global_position.y > 1.35 and actor.is_on_floor()
 	print("OK A ramp " if ok else "FAIL A ramp ", actor.global_position)
+	if not ok:
+		await finish(false)
+		return
+	# Separate fixture: start at the base of the native Short Stairs.
+	# Both traversals from that starting point are ordinary input, no jumping.
+	actor.global_position = Vector3(8.12, 0.16, -41.25)
+	actor.reset_motion()
+	await ticks(24)
+	ok = await visit([Vector2(8.12, -46.25)])
+	ok = ok and actor.is_on_floor() and actor.global_position.y > 2.3
+	print("OK Short Stairs ascent " if ok else "FAIL Short Stairs ascent ", actor.global_position)
+	if ok:
+		ok = await visit([Vector2(8.12, -41.30)])
+		ok = ok and actor.is_on_floor() and actor.global_position.y < 0.25
+		print("OK Short Stairs descent " if ok else "FAIL Short Stairs descent ", actor.global_position)
 	await finish(ok)

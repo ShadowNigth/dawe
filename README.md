@@ -4,7 +4,7 @@
 
 ## Descargar el proyecto con los activos incluidos
 
-**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Bayoneta-con-activos.zip?raw=true)**
+**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Salto-Escaleras-con-activos.zip?raw=true)**
 
 El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, la USP-S, la AK-47 y la bayoneta con el brazo cromado de Silverhand y el implante de la mano derecha del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
 
@@ -22,6 +22,12 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | Clic izquierdo / R / F | Disparo o tajo con la bayoneta / recarga / inspección (con bayoneta, F durante el desenfunde reproduce la variante) |
 | Clic derecho | Quitar o colocar el silenciador en la USP-S (también T) o reproducir la estocada con bayoneta |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
+
+## Salto, escalones y agarre
+
+- SAS y Phoenix muestran despegue, descenso y aterrizaje en tercera persona. Las poses se generan para las tres posturas de arma y no empujan el cuerpo físico.
+- El salto conserva el impulso y permite alcanzar repisas más altas. Los escalones de hasta 34 cm se suben caminando si hay una superficie transitable y espacio para la cápsula. No se quitan las paredes ni los límites invisibles de Dust II.
+- Los dedos de la mano derecha se ajustan a la forma de cada empuñadura antes del horneado. Los clips mantienen el agarre estabilizado durante el disparo.
 
 ## Instalar los activos locales
 
@@ -91,7 +97,7 @@ godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo y la tolerancia del salto al aterrizar o dejar un borde. También verifica que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. `--require-preview` comprueba además el recorte texturizado de la demo.
+La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo y la tolerancia del salto al aterrizar o dejar un borde. También verifica cinco escalones, un salto a una repisa de 94 cm y que la cámara se retraiga al rozar una esquina. La prueba de Dust II recorre además la escalera real de Corta en ambas direcciones. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 

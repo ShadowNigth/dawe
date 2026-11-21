@@ -32,11 +32,13 @@ func run() -> void:
 		agents(sw)
 		await weapons(sw)
 		bayonet_actions(sw)
+		await jump_animation(sw)
 	else:
 		check(not sw.world.dust2, "training fixture")
 		await locomotion(sw)
 		await chase_camera(sw)
 		await movement_response(sw)
+		await steps_and_ledge(sw)
 	print("Dawe: ", failures.size(), " failures")
 	sw.queue_free()
 	await process_frame
@@ -49,6 +51,7 @@ func agents(sw: Node) -> void:
 		check(player != null, "%s skinned scene" % id)
 		if player != null:
 			check(player.has_animation("idle"), "%s idle" % id)
+			check(player.has_animation("jump/rise_pistol"), "%s has jump animations" % id)
 			var clips := 0
 			for gait in ["walk", "run", "crouch"]:
 				for direction in ["ne", "nw", "se", "sw"]:
@@ -331,7 +334,7 @@ func movement_response(sw: Node) -> void:
 	Input.action_press("jump")
 	await ticks(2)
 	Input.action_release("jump")
-	for frame in 35:
+	for frame in 48:
 		if player.velocity.y < 0.0 and player.global_position.y < 0.40:
 			break
 		await ticks(1)
@@ -359,3 +362,64 @@ func movement_response(sw: Node) -> void:
 	Input.action_release("forward")
 	Input.action_release("run")
 	check(player.velocity.y > 2.0, "jump works just after leaving a ledge")
+
+func steps_and_ledge(sw: Node) -> void:
+	var player = sw.actor
+	var sand := Color("bda17e")
+	sw.world.block(Vector3(120, -0.25, 0), Vector3(10, 0.5, 22), sand)
+	for i in 5:
+		var h := 0.2 * (i + 1)
+		sw.world.block(Vector3(120, h * 0.5, -i * 0.64), Vector3(3.0, h, 0.64), sand)
+	sw.world.block(Vector3(120, 0.50, -4.0), Vector3(3.0, 1.0, 2.4), sand)
+	sw.world.block(Vector3(120, 1.9, -5.1), Vector3(3.0, 1.8, 0.20), sand)
+	player.global_position = Vector3(120, 0.1, 1.8)
+	player.rotation.y = 0.0
+	player.reset_motion()
+	await ticks(20)
+	Input.action_press("forward")
+	await ticks(170)
+	Input.action_release("forward")
+	check(player.is_on_floor() and player.global_position.y > 0.96 and player.global_position.z < -3.1, "walks up five risers without jumping")
+	check(player.global_position.z > -4.95, "step assist does not climb the tall wall")
+	Input.action_press("back")
+	await ticks(140)
+	Input.action_release("back")
+	check(player.is_on_floor() and player.global_position.y < 0.08 and player.global_position.z > 0.45, "walks down the steps without getting stuck")
+
+	# This obstacle is higher than the old 0.68 m jump, but below the new apex.
+	sw.world.block(Vector3(124, 0.47, -1.2), Vector3(1.4, 0.94, 1.4), sand)
+	player.global_position = Vector3(124, 0.08, 0.075)
+	player.reset_motion()
+	await ticks(20)
+	Input.action_press("jump")
+	Input.action_press("forward")
+	await ticks(46)
+	Input.action_release("jump")
+	Input.action_release("forward")
+	check(player.is_on_floor() and absf(player.global_position.y - 0.94) < 0.05, "longer jump reaches a 94 cm ledge")
+
+func jump_animation(sw: Node) -> void:
+	var player = sw.actor
+	player.set_agent("sas")
+	player.stance = "knife"
+	var animator: AnimationPlayer = player.animation_player
+	if animator == null:
+		check(false, "SAS jump rig")
+		return
+	for phase in ["rise", "fall", "land"]:
+		for stance in ["pistol", "rifle", "knife"]:
+			check(animator.has_animation("jump/%s_%s" % [phase, stance]), "jump animation %s %s" % [phase, stance])
+	check(pose_changes(player.avatar, animator, "jump/rise_knife"), "jump bends the legs on the agent skeleton")
+	Input.action_press("jump")
+	await ticks(3)
+	Input.action_release("jump")
+	check(player.current_clip == "jump/rise_knife", "jump pose follows actual takeoff")
+	await ticks(20)
+	check(player.current_clip == "jump/fall_knife", "jump uses a distinct descending pose")
+	for i in 40:
+		if player.is_on_floor():
+			break
+		await ticks(1)
+	check(player.current_clip == "jump/land_knife", "landing uses the contact pose")
+	await ticks(20)
+	check(not player.current_clip.begins_with("jump/"), "landing returns to ground locomotion")

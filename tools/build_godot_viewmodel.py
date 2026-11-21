@@ -13,6 +13,7 @@ from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, Weapon, arm_
 from import_assets import GODOT_WEAPON_CLIPS
 from bake_multirig_material import bake_material
 from retarget_godot_arms import GripRetarget
+from fit_godot_grip import RightGrip
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
@@ -141,7 +142,8 @@ def build(assets, output, weapon_name):
             for name in parents if name != 'root'}
     parents.update({name: 'root' if name == 'weapon_offset' else 'weapon_offset' for name in weapon.parts})
     ids = {name: i for i, name in enumerate(parents)}
-    gun, = (obj for obj in import_gltf(mesh_path).values() if obj.type == 'MESH')
+    gun, = (obj for obj in import_gltf(mesh_path).values() if obj.type == 'MESH'
+            and (knife or (obj.parent and obj.parent.type == 'ARMATURE')))
     idle = import_clip(clips / f'{idle_name}.glb')
     scene.frame_set(0)
     only_core = {name: parent for name, parent in parents.items() if name not in support}
@@ -181,11 +183,16 @@ def build(assets, output, weapon_name):
         write_smd(output / 'silencer_mesh.smd', parents, [rest], (tri for tri in weapons if detachable(tri)))
         weapons = [tri for tri in weapons if not detachable(tri)]
     write_smd(output / 'weapon_mesh.smd', parents, [rest], weapons)
+    arm_geometry = {}
     for side, objects in arms.items():
         geometry = [tri for obj in objects for tri in triangles(obj, STUDIO @ ARM_UNITS @ obj.matrix_world,
                                                                   arm_textures.get(obj.name, 'skin.png'), ids, side + 'ForeArm')]
+        arm_geometry[side] = geometry
         write_smd(output / f'{side.lower()}_mesh.smd', parents, [rest], geometry)
         print(f'{side}: {len(geometry)} tris originales', flush=True)
+    grip_fit = RightGrip(weapons, arm_geometry['Right'], parents, rest)
+    grip_fit.fit(idle_pose, lambda pose: pose_with_support(pose, rest, support))
+    grip_fit.apply(idle_pose)
     write_smd(output / 'skin_bind.smd', parents, [rest])
     events = {}
     for name in GODOT_WEAPON_CLIPS[weapon_name]:
@@ -197,7 +204,10 @@ def build(assets, output, weapon_name):
             for i, pose in enumerate(poses):
                 settle = max(0.0, 1.0 - (len(poses) - 1 - i) / 12) if len(poses) > 12 else 0.0
                 settle = settle * settle * (3 - 2 * settle)
-                yield pose_with_support(retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle, lock_right=not knife), rest, support)
+                retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle, lock_right=not knife)
+                if name != 'shoot1':  # Recoil already follows the corrected idle grip.
+                    grip_fit.apply(pose)
+                yield pose_with_support(pose, rest, support)
 
         write_smd(output / f'{name}.smd', parents, stable_poses())
         if name.startswith('silencer_'):

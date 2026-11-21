@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
 const Assets = preload("res://scripts/assets.gd")
+const AgentJump = preload("res://scripts/agent_jump.gd")
 const DustCollision = preload("res://scripts/dust_collision.gd")
 const WALK := 2.8
 const RUN := 5.6
@@ -14,7 +15,9 @@ const STOP_SPEED := 2.4
 const AIR_ACCEL := 3.1
 const AIR_WISH_CAP := 2.25
 const AIR_SPEED_LIMIT := 6.4
-const JUMP_SPEED := 5.0
+const JUMP_SPEED := 6.6
+const MAX_STEP := 0.34
+const STEP_SKIN := 0.015
 const JUMP_BUFFER := 0.11
 const COYOTE_TIME := 0.075
 const STAND_EYE := 1.62
@@ -40,6 +43,9 @@ var fallback: MeshInstance3D
 var queued_jump := 0.0
 var floor_grace := 0.0
 var eye_height := STAND_EYE
+var step_camera_offset := 0.0
+var step_hit := KinematicCollision3D.new()
+var landing_time := 0.0
 
 func _ready() -> void:
 	collision_layer = DustCollision.PLAYER
@@ -78,6 +84,8 @@ func set_agent(id: String) -> void:
 		model.rotation.y = PI
 		avatar.add_child(model)
 		animation_player = find_animation_player(model)
+		if animation_player != null:
+			AgentJump.install(model, animation_player)
 	else:
 		fallback = MeshInstance3D.new()
 		var mesh := CapsuleMesh.new()
@@ -128,6 +136,8 @@ func reset_motion() -> void:
 	queued_jump = 0.0
 	floor_grace = 0.0
 	eye_height = DUCK_EYE if crouched else STAND_EYE
+	step_camera_offset = 0.0
+	landing_time = 0.0
 
 # Add speed only in the requested direction. Air steering can redirect a jump
 # without forcibly interpolating away the velocity the player took off with.
@@ -166,14 +176,77 @@ func _physics_process(delta: float) -> void:
 		velocity.y = JUMP_SPEED
 	elif not grounded:
 		velocity.y -= GRAVITY * delta
+	if grounded and not jumping and not wish.is_zero_approx():
+		try_step_up(Vector3(horizontal.x, 0.0, horizontal.y) * delta)
+	var before_slide_y := velocity.y
 	move_and_slide()
+	landing_time = maxf(0.0, landing_time - delta)
+	if not is_on_floor():
+		landing_time = 0.0
+	elif not grounded and before_slide_y < -2.1:
+		landing_time = 0.23
 	update_avatar(running)
 	update_camera(delta)
+
+# Up, across, then down with the actual player capsule. Only lift when the
+# horizontal motion meets a riser and the landing is walkable; no changes to
+# the map triangles or invisible player bounds are necessary.
+func try_step_up(motion: Vector3) -> void:
+	if motion.length_squared() < 0.000025:
+		return
+	var start := global_transform
+	var walkable := cos(floor_max_angle)
+	if not test_move(start, motion, step_hit) or step_hit.get_normal().dot(Vector3.UP) >= walkable:
+		return
+	var obstacle := step_hit.get_collider() as CollisionObject3D
+	if obstacle == null or not (obstacle.collision_layer & DustCollision.WORLD):
+		return
+	var lift := Vector3.UP * (MAX_STEP + STEP_SKIN)
+	if test_move(start, lift, step_hit):
+		# A low ceiling may still leave room for this particular riser.
+		lift.y = step_hit.get_travel().y - STEP_SKIN
+		if lift.y < 0.05:
+			return
+	var lifted := start.translated(lift)
+	# Look past the rounded front of the capsule for a tread. A downward
+	# sweep exactly above the first contact would hit the vertical riser again.
+	var probe := motion + motion.normalized() * (capsule.radius + STEP_SKIN)
+	if test_move(lifted, probe):
+		return
+	var down := -lift - Vector3.UP * STEP_SKIN
+	if not test_move(lifted.translated(probe), down, step_hit):
+		return
+	var support := step_hit.get_collider() as CollisionObject3D
+	if step_hit.get_normal().dot(Vector3.UP) < walkable or support == null or not (support.collision_layer & DustCollision.WORLD):
+		return
+	var rise := lift.y + step_hit.get_travel().y
+	if rise < 0.025 or rise > MAX_STEP:
+		return
+	# Keep ordinary horizontal motion and floor snapping in move_and_slide().
+	# Confirm that the smaller lift won't catch on the original riser again.
+	var raise := Vector3.UP * (rise + STEP_SKIN)
+	if raise.y > lift.y or test_move(start.translated(raise), motion):
+		return
+	global_position.y += raise.y
+	step_camera_offset = maxf(-MAX_STEP, step_camera_offset - raise.y)
 
 func update_avatar(running: bool) -> void:
 	avatar.visible = third_person
 	if animation_player == null:
 		return
+	var phase := ""
+	if not is_on_floor() and (velocity.y > 0.0 or floor_grace <= 0.0):
+		phase = "rise" if velocity.y > 0.0 else "fall"
+	elif landing_time > 0.0:
+		phase = "land"
+	if not phase.is_empty():
+		var air_clip := "jump/%s_%s" % [phase, stance]
+		if animation_player.has_animation(air_clip):
+			if current_clip != air_clip:
+				current_clip = air_clip
+				frozen_pose = false
+				animation_player.play(air_clip, 0.055)
+			return
 	var moving := (
 		move_direction.length_squared() > 0.01
 		and Vector2(get_real_velocity().x, get_real_velocity().z).length() > 0.15
@@ -201,7 +274,8 @@ func update_avatar(running: bool) -> void:
 
 func update_camera(delta: float) -> void:
 	eye_height = move_toward(eye_height, DUCK_EYE if crouched else STAND_EYE, 6.5 * delta)
-	var eye := global_position + Vector3.UP * eye_height
+	step_camera_offset = move_toward(step_camera_offset, 0.0, delta * 3.5)
+	var eye := global_position + Vector3.UP * (eye_height + step_camera_offset)
 	camera.rotation.x = pitch
 	if not third_person:
 		arm_fraction = 0
