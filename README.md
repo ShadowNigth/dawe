@@ -2,6 +2,12 @@
 
 **Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S y AK-47. Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
 
+## Descargar el proyecto con los activos incluidos
+
+**[Descargar Dawe para Godot con modelos y texturas (.zip, 79,4 MiB)](downloads/Dawe-Godot-6b48a3a-con-activos.zip?raw=true)**
+
+El ZIP contiene el proyecto del commit `6b48a3a` y los activos preparados de Dust II, SAS, Phoenix, USP-S y AK-47 con los brazos del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
+
 ## Abrir el proyecto
 
 Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** desde `main.tscn` o **F5** desde el proyecto. Sin importar recursos de terceros, funciona la pista local con figuras de reemplazo: un patio, un paso angosto y una rampa que permite probar el movimiento y la cámara.
@@ -19,7 +25,7 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 
 ## Instalar los activos locales
 
-El repositorio no distribuye copias de los modelos, texturas ni mapas de Valve o CD Projekt Red. El importador descarga las **revisiones fijadas** de cs2go y MultiRig y deja un inventario con sus SHA-256. Revisá las [notas de procedencia y licencias](docs/godot-migration.md#procedencia-y-límites-de-uso) antes de compartir cualquier derivado.
+Para reconstruir los activos preparados que incluye el ZIP, el importador descarga las **revisiones fijadas** de cs2go y MultiRig y deja un inventario con sus SHA-256. Revisá las [notas de procedencia y licencias](docs/godot-migration.md#procedencia-y-límites-de-uso) antes de compartir cualquier derivado.
 
 Desde la raíz, con **Python 3.10+**, Node.js y [Basis Universal](https://github.com/BinomialLLC/basis_universal) (`basisu` 1.16+ con KTX2):
 
@@ -47,7 +53,7 @@ Se reaprovecha el horneado del MultiRig, **sin compilar MDL ni BSP**. Cada arma 
 
 ## Vista texturizada de Puertas Largas
 
-La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con SAS: `2` cambia a Phoenix, `V` muestra los brazos y el arma en primera persona, y `3` / `4` equipan la USP-S y la AK-47. Los materiales y las animaciones se generan de los GLB preparados arriba; no se incluyen en el ZIP de fuentes.
+La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con SAS: `2` cambia a Phoenix, `V` muestra los brazos y el arma en primera persona, y `3` / `4` equipan la USP-S y la AK-47. Los materiales y las animaciones se generan de los GLB preparados arriba; están incluidos en el ZIP de `downloads/`. El archivo automático de fuentes de GitHub es distinto.
 
 Para reproducir ese recorte en Godot, después de generar `dust2.glb` y los cuatro GLB de agentes y armas:
 
