@@ -15,20 +15,45 @@ from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, Weapon, arm_
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
 from import_assets import GODOT_WEAPON_CLIPS
 from bake_multirig_material import bake_material
-from retarget_godot_arms import GripRetarget
+from retarget_godot_arms import GripRetarget, WristContinuity
 from fit_godot_grip import RightGrip
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
-M4A4 = Weapon('m4a4', 'rif_m4a1', ('weapon_offset', 'bolt', 'clip', 'trigger'))
-BAYONET = Weapon('bayonet', 'Bayonet worn steel and olive grip', ('weapon_offset',))
+EXTRA_WEAPONS = {
+    'm4a4': Weapon('m4a4', 'weapon_rif_m4a4', ('weapon_offset', 'bolt', 'clip', 'trigger')),
+    'glock': Weapon('glock', 'pist_glock18', ('weapon_offset', 'magazine', 'slide', 'trigger')),
+    'deagle': Weapon('deagle', 'pist_deagle', ('weapon_offset', 'clip', 'hammer', 'slide', 'trigger')),
+    'awp': Weapon('awp', 'awp', ('weapon_offset', 'clip', 'rail', 'bolt_action', 'trigger')),
+    'bayonet': Weapon('bayonet', 'Bayonet worn steel and olive grip', ('weapon_offset',)),
+}
 
 
-def import_weapon_mesh(path):
+def source_layout(path):
     with path.open('rb') as source:
         source.seek(12)
         size, _ = struct.unpack('<II', source.read(8))
-        doc = json.loads(source.read(size))
+        return json.loads(source.read(size))
+
+
+def material_uv(spec):
+    # Blender retains the quantized atlas UVs and represents KHR_texture_transform
+    # as material nodes. The SMD bridge needs the transformed UVs themselves.
+    pbr = spec['pbrMetallicRoughness']
+    slots = (pbr['baseColorTexture'], pbr.get('metallicRoughnessTexture'), spec.get('normalTexture'), spec.get('occlusionTexture'))
+    transforms = [slot.get('extensions', {}).get('KHR_texture_transform', {}) for slot in slots if slot]
+    if not all(value == transforms[0] for value in transforms):
+        raise ValueError(f'Distintas transformaciones UV en {spec["name"]}')
+    uv = transforms[0]
+    if uv.get('rotation', 0) != 0 or uv.get('texCoord', 0) != 0:
+        raise ValueError(f'Transformación UV no soportada en {spec["name"]}')
+    su, sv = uv.get('scale', (1., 1.))
+    ox, oy = uv.get('offset', (0., 0.))
+    return su, sv, ox, 1. - sv - oy  # glTF V points down; Blender V points up.
+
+
+def import_weapon_mesh(path):
+    doc = source_layout(path)
     if 'EXT_meshopt_compression' not in doc.get('extensionsUsed', []):
         return import_gltf(path)
     with tempfile.TemporaryDirectory(prefix='dawe-meshopt-') as temp:
@@ -61,7 +86,7 @@ def linked_weights(vertex, names, ids, default):
     return tuple((i, v / total) for i, v in weights) if total else ((default, 1.0),)
 
 
-def triangles(obj, transform, texture, ids, fallback, material_index=None):
+def triangles(obj, transform, texture, ids, fallback, material_index=None, uv_transform=(1., 1., 0., 0.)):
     # The original rest mesh gives the true inverse bind and avoids baking
     # any collapsed triangles from a warped idle pose or destructive decimation.
     mesh = obj.data
@@ -71,12 +96,13 @@ def triangles(obj, transform, texture, ids, fallback, material_index=None):
     uv = mesh.uv_layers.active.data
     normal_matrix = transform.to_3x3().inverted().transposed()
     links = [linked_weights(v, names, ids, ids[fallback]) for v in mesh.vertices]
+    su, sv, ox, oy = uv_transform
     for tri in mesh.loop_triangles:
         if material_index is not None and tri.material_index != material_index:
             continue
         yield texture, tuple((tuple(transform @ mesh.vertices[vert].co),
                              tuple((normal_matrix @ normals[loop].vector).normalized()),
-                             tuple(uv[loop].uv), links[vert])
+                             (su * uv[loop].uv.x + ox, sv * uv[loop].uv.y + oy), links[vert])
                             for loop, vert in zip(tri.loops, tri.vertices))
 
 
@@ -142,9 +168,10 @@ def build(assets, output, weapon_name):
     if output.exists():
         raise FileExistsError(output)
     knife = weapon_name == 'bayonet'
-    weapon = {**WEAPONS, 'bayonet': BAYONET, 'm4a4': M4A4}[weapon_name]
+    weapon = {**WEAPONS, **EXTRA_WEAPONS}[weapon_name]
     cs2go = assets / 'cs2go'
-    mesh_path = cs2go / ('bayonet.glb' if knife else f'viewmodels/{weapon_name}.glb')
+    mesh_stem = 'm4a4-hd' if weapon_name == 'm4a4' else weapon_name
+    mesh_path = cs2go / ('bayonet.glb' if knife else f'viewmodels/{mesh_stem}.glb')
     clips = cs2go / (f'animations/{weapon_name}' if knife else f'viewmodels/{weapon_name}')
     idle_name = 'idle1' if knife else 'idle'
     bpy.ops.wm.open_mainfile(filepath=str(assets / 'multirig/Cyberpunk_Rig.blend'), use_scripts=False)
@@ -182,15 +209,26 @@ def build(assets, output, weapon_name):
     GripRetarget(rest, idle_pose).apply(idle_pose, 'idle')
     output.mkdir(parents=True)
     image_file(bpy.data.images['a0_000_ma__c_base_hq_d01'], output / 'skin.png')
-    weapon_surface = {'metallic': 1., 'roughness': 1., 'orm': 'weapon-orm.webp'}
-    if knife:
-        image_file(bpy.data.images['Bayonet color'], output / 'weapon-color.webp')
-        image_file(bpy.data.images['Bayonet occlusion roughness metalness'], output / 'weapon-orm.webp')
-    else:
-        for suffix, file in [('color', 'weapon-color.webp'), ('ORM', 'weapon-orm.webp'), ('normal', 'weapon-normal.webp')]:
-            image_file(bpy.data.images[f'{weapon.material} {suffix}'], output / file)
-        weapon_surface['normal'] = 'weapon-normal.webp'
-    materials = {'skin.png': {'metallic': 0., 'roughness': .61}, 'weapon-color.webp': weapon_surface}
+    material_names = [weapon.material] + (['shared_scope'] if weapon_name == 'awp' else [])
+    source_materials = {mat['name']: mat for mat in source_layout(mesh_path)['materials']}
+    materials = {'skin.png': {'metallic': 0., 'roughness': .61}}
+    surfaces = []
+    for index, name in enumerate(material_names):
+        prefix = 'weapon' if index == 0 else 'weapon-scope'
+        color, orm, normal = (f'{prefix}-{channel}.webp' for channel in ('color', 'orm', 'normal'))
+        if knife:
+            image_file(bpy.data.images['Bayonet color'], output / color)
+            image_file(bpy.data.images['Bayonet occlusion roughness metalness'], output / orm)
+            uv = (1., 1., 0., 0.)
+        else:
+            for suffix, dst in [('color', color), ('ORM', orm), ('normal', normal)]:
+                image_file(bpy.data.images[f'{name} {suffix}'], output / dst)
+            uv = material_uv(source_materials[name])
+        materials[color] = {'metallic': 1., 'roughness': 1., 'orm': orm}
+        if not knife:
+            materials[color]['normal'] = normal
+        slot = next(i for i, material in enumerate(gun.data.materials) if material.name == name)
+        surfaces.append((slot, color, uv))
     arm_textures = {}
     for obj, name, size in ((silver, 'silverhand', 512), (grip, 'grip-implant', 256)):
         tex, spec = bake_material(obj, output, name, size)
@@ -205,8 +243,8 @@ def build(assets, output, weapon_name):
     else:
         anchor = gun.matrix_world.inverted() @ gun.parent.matrix_world @ gun.parent.data.bones['weapon_offset'].head_local
         weapon_pose = STUDIO @ idle['wpn'].matrix_world @ Matrix.Translation(-anchor)
-    slot = next(i for i, material in enumerate(gun.data.materials) if material.name == weapon.material)
-    weapons = list(triangles(gun, weapon_pose, 'weapon-color.webp', ids, 'weapon_offset', slot))
+    weapons = [tri for slot, color, uv in surfaces
+               for tri in triangles(gun, weapon_pose, color, ids, 'weapon_offset', slot, uv)]
     if 'silencer' in ids:
         def detachable(tri):
             return all(corner[3][0][0] == ids['silencer'] for corner in tri[1])
@@ -228,13 +266,21 @@ def build(assets, output, weapon_name):
     for name in GODOT_WEAPON_CLIPS[weapon_name]:
         path = clips / f'{name}.glb'
         nodes = idle if name == idle_name else import_clip(path)
-        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=weapon_name in ('bayonet', 'm4a4')))
+        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=weapon_name in EXTRA_WEAPONS, allow_single=weapon_name == 'deagle'))
         retarget = GripRetarget(rest, idle_pose)
+        continuity = WristContinuity() if weapon_name == 'deagle' and name != 'shoot1' else None
+        bolt_cycle = weapon_name == 'awp' and name == 'shoot1'
         def stable_poses():
             for i, pose in enumerate(poses):
                 settle = max(0.0, 1.0 - (len(poses) - 1 - i) / 12) if len(poses) > 12 else 0.0
                 settle = settle * settle * (3 - 2 * settle)
-                retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle, lock_right=not knife)
+                # Lock the first AWP recoil frames, not the hand reaching for its bolt.
+                release = min(1.0, max(0.0, (i - 6) / 8)) if bolt_cycle else 0.0
+                recoil_mix = 1.0 - release * release * (3.0 - 2.0 * release)
+                retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle,
+                               lock_right=not (knife or bolt_cycle), recoil_mix=recoil_mix)
+                if continuity:
+                    continuity.apply(pose)
                 if name != 'shoot1':  # Recoil already follows the corrected idle grip.
                     grip_fit.apply(pose)
                 yield pose_with_support(pose, rest, support)

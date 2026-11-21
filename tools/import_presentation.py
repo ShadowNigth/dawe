@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install logos, local audio and a short generated wind loop for the Godot demo."""
 import argparse
+import base64
 import hashlib
 import json
 import io
@@ -11,6 +12,7 @@ import struct
 import subprocess
 import tempfile
 import wave
+from urllib.request import urlopen
 
 import numpy as np
 import soundfile as sf
@@ -19,6 +21,9 @@ from import_assets import ROOT, SOURCES, GODOT_WEAPON_CLIPS
 
 AUDIO = (
     'ak47-1', 'ak47_boltpull', 'ak47_clipin', 'ak47_clipout', 'ak47_draw',
+    'glock18-1', 'glock_draw', 'glock_clipout', 'glock_clipin', 'glock_slideback', 'glock_sliderelease',
+    'deagle-1', 'de_draw', 'de_clipout', 'de_clipin', 'de_slideback', 'de_slideforward',
+    'awp1', 'awp_draw', 'awp_clipout', 'awp_clipin', 'awp_boltback', 'awp_boltforward', 'zoom',
     'm4a1-1', 'm4a1_draw', 'm4a1_clipin', 'm4a1_clipout', 'm4a1_boltback', 'm4a1_boltforward',
     *(f'suppressor-1-silencerscrew{n}' for n in ('onstart', 1, 2, 3, 4, 5)),
     'usp1', 'usp_clipin', 'usp_clipout', 'usp_draw', 'usp_slideback', 'usp_sliderelease',
@@ -58,30 +63,39 @@ def audio_pcm(data):
     return mono, target
 
 
-def unsuppressed_shot(path):
-    # This source pack only ships Weapon_USP.SilencedShot. Create a distinct
-    # fallback for the open muzzle instead of filtering/down-pitching that clip.
-    rng = np.random.default_rng(223)
-    rate = 22050
-    t = np.arange(int(.42*rate))/rate
-    noise = rng.uniform(-1, 1, t.size)
-    body = .48*np.sin(2*np.pi*(195*t - 130*t*t))*np.exp(-37*t)
-    boom = (.50*noise + .28*np.convolve(noise, np.ones(5)/5, mode='same'))*np.exp(-27*t)
-    crack = .68*(noise - np.r_[0., noise[:-1]])*np.exp(-230*t)
-    sharp = (1-np.exp(-5700*t))*(body+boom+crack)
-    for delay, gain in ((.019, .17), (.052, .11), (.091, .06)):
-        frames = round(delay*rate)
-        sharp[frames:] += sharp[:-frames]*gain
-    sf.write(path, np.tanh(sharp*1.4)*.93, rate, subtype='PCM_16')
+OPEN_USP_REV = '08f1bd6835d4f510d2ccaedeab6bb9f637b388ab'
+OPEN_USP_HASHES = ('5c540332524856ac0935d18fdcb54b9552becc3705d8d1ee1bc5cdcd466a063f',
+                   'fc96dc9651c0e27706d96ccf5b2b110d4d1d2e0a8883f279a3de67a37dcdf756',
+                   '74014641c026966b4e2498c58ee79c6816803b4fa70eee74662cf9110edad96e')
+
+
+def install_open_usp(output, manifest, local=None):
+    """Use the original CS:GO unmounted USP-S samples, never a synthetic substitute."""
+    for i, expected in enumerate(OPEN_USP_HASHES, 1):
+        filename = f'usp_unsilenced_{i:02}.wav'
+        origin = f'sound/weapons/usp/{filename}'
+        if local:
+            data = (local / filename).read_bytes()
+        else:
+            with urlopen(f'https://api.github.com/repos/sourcesounds/csgo/contents/{origin}?ref={OPEN_USP_REV}', timeout=20) as src:
+                data = base64.b64decode(json.load(src)['content'])
+        if hashlib.sha256(data).hexdigest() != expected:
+            raise ValueError(f'Muestra de USP inesperada: {filename}')
+        target = f'audio/usp-unsuppressed-{i:02}.wav'
+        mono, rate = audio_pcm(data)
+        sf.write(output/target, mono, rate, subtype='PCM_16')
+        manifest[target] = dict(repository='https://github.com/sourcesounds/csgo', revision=OPEN_USP_REV,
+                                source=origin, source_sha256=expected,
+                                sha256=hashlib.sha256((output/target).read_bytes()).hexdigest())
 
 
 def clip_cues(read):
-    weapons = {'usp-s': 'usp', 'ak-47': 'ak47', 'm4a4': 'm4a1'}
-    parts = {'draw', 'clipin', 'clipout', 'boltpull', 'boltback', 'boltforward', 'slideback', 'sliderelease'}
+    weapons = {'usp-s': 'usp', 'ak-47': 'ak47', 'm4a4': 'm4a1', 'glock': 'glock', 'deagle': 'de', 'awp': 'awp'}
+    parts = {'draw', 'clipin', 'clipout', 'boltpull', 'boltback', 'boltforward', 'slideback', 'sliderelease', 'slideforward'}
     out = {}
     for weapon, clips in GODOT_WEAPON_CLIPS.items():
         for clip in clips:
-            if clip.startswith('idle') or clip == 'shoot1':
+            if clip.startswith('idle') or (clip == 'shoot1' and weapon != 'awp'):
                 continue
             section = 'animations' if weapon == 'bayonet' else 'viewmodels'
             data = read(f'models/{section}/{weapon}/{clip}.glb')
@@ -92,7 +106,7 @@ def clip_cues(read):
                 name = event.get('m_name', '')
                 kind = name.split('.')[-1]
                 sample = None
-                if weapon in weapons and kind in parts and name.split('.')[0] in (f'weapon_{weapons[weapon]}', 'weapon_galilar'):
+                if weapon in weapons and kind in parts and name.split('.')[0] in (f'weapon_{weapons[weapon]}', 'weapon_galilar', 'weapon_deagle'):
                     sample = f'{weapons[weapon]}_{kind}'
                 elif weapon == 'usp-s' and kind.startswith('silencerscrew'):
                     sample = 'suppressor-1-' + kind
@@ -115,7 +129,7 @@ def clip_cues(read):
     return out
 
 
-def extract(repo, output):
+def extract(repo, output, usp_dir=None):
     url, revision = SOURCES['cs2go']
     output.mkdir(parents=True, exist_ok=True)
     (output/'audio').mkdir(exist_ok=True)
@@ -125,6 +139,7 @@ def extract(repo, output):
 
     targets = [(f'audio/{src}.ogg', f'audio/{Path(src).name}.wav') for src in AUDIO]
     targets += [(f'icons/team-{team}.png', f'team-{team}.png') for team in ('ct', 't')]
+    targets += [(f"icons/{id}.png", f"buy-{id}.png") for id in GODOT_WEAPON_CLIPS if id != "bayonet"]
     manifest = {}
     for source, target in targets:
         data = read(source)
@@ -135,10 +150,7 @@ def extract(repo, output):
             (output/target).write_bytes(data)
         manifest[target] = dict(source=f'packages/assets/public/{source}', source_sha256=hashlib.sha256(data).hexdigest(),
                                 sha256=hashlib.sha256((output/target).read_bytes()).hexdigest())
-    unsuppressed = output/'audio/usp-unsuppressed.wav'
-    unsuppressed_shot(unsuppressed)
-    manifest['audio/usp-unsuppressed.wav'] = dict(source='Dawe: synthesized open muzzle (fallback)',
-                                                 sha256=hashlib.sha256(unsuppressed.read_bytes()).hexdigest())
+    install_open_usp(output, manifest, usp_dir)
     cue_file = output/'weapon-sound-cues.json'
     cues = clip_cues(read)
     for entries in cues.values():
@@ -158,9 +170,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repo', type=Path, help='existing cs2go checkout or bare repository')
     p.add_argument('--output', type=Path, default=ROOT/'godot/generated')
+    p.add_argument('--usp-dir', type=Path, help='local directory containing the pinned original USP WAVs')
     args = p.parse_args()
     if args.repo:
-        extract(args.repo, args.output)
+        extract(args.repo, args.output, args.usp_dir)
     else:
         url, revision = SOURCES['cs2go']
         with tempfile.TemporaryDirectory(prefix='dawe-presentation-') as temp:
@@ -168,7 +181,7 @@ def main():
             subprocess.run(['git','-C',temp,'remote','add','origin',url], check=True)
             subprocess.run(['git','-C',temp,'config','remote.origin.promisor','true'], check=True)
             subprocess.run(['git','-C',temp,'fetch','--depth=1','--filter=blob:none','origin',revision], check=True)
-            extract(temp, args.output)
+            extract(temp, args.output, args.usp_dir)
 
 
 if __name__ == '__main__':

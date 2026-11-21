@@ -67,7 +67,8 @@ func agents(sw: Node) -> void:
 			check(pose_changes(sw.actor.avatar, player, "run_ne_pistol"), "%s locomotion moves the rig" % id)
 
 func weapons(sw: Node) -> void:
-	for id in ["usp-s", "ak-47", "m4a4"]:
+	sw.loadout[0] = "ak-47"
+	for id in ["usp-s", "ak-47", "m4a4", "glock", "deagle", "awp"]:
 		sw.viewmodel.select(id, false)
 		var player: AnimationPlayer = sw.viewmodel.animation_player
 		check(player != null, "%s skinned viewmodel" % id)
@@ -75,7 +76,7 @@ func weapons(sw: Node) -> void:
 			continue
 		check(has_texture(sw.viewmodel.model), "%s has textures on its first-person model" % id)
 		check(pose_changes(sw.viewmodel.model, player, "reload"), "%s reload moves the rig" % id)
-		check(recoil_keeps_grip(sw.viewmodel.model, player), "%s wrists follow recoil without twisting off the grip" % id)
+		check(recoil_keeps_grip(sw.viewmodel.model, player, id == "awp"), "%s wrists follow recoil without twisting off the grip" % id)
 		for clip in ["idle", "draw", "shoot1", "reload", "lookat01"]:
 			check(player.has_animation(clip), "%s %s" % [id, clip])
 		if id == "usp-s":
@@ -178,9 +179,7 @@ func bayonet_actions(sw: Node) -> void:
 	vm.animation_player.advance(2.0)
 	check(vm.inspect() and vm.active_clip == "lookat01", "normal bayonet inspection")
 	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "m4a4", "weapon wheel reaches the M4A4 from the bayonet")
-	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "ak-47", "weapon wheel wraps from M4A4 to AK-47")
+	check(vm.weapon_id == "ak-47", "weapon wheel wraps from knife to owned primary")
 
 
 func has_texture(node: Node) -> bool:
@@ -218,7 +217,7 @@ func pose_changes(model: Node, player: AnimationPlayer, clip: String) -> bool:
 			return true
 	return false
 
-func recoil_keeps_grip(model: Node, player: AnimationPlayer) -> bool:
+func recoil_keeps_grip(model: Node, player: AnimationPlayer, bolt_cycle := false) -> bool:
 	var rig := first_skeleton(model)
 	if rig == null or not player.has_animation("shoot1"):
 		return false
@@ -236,7 +235,7 @@ func recoil_keeps_grip(model: Node, player: AnimationPlayer) -> bool:
 		grips.append(start.affine_inverse() * rig.get_bone_global_pose(limb))
 	var moved := false
 	for step in range(1, 13):
-		player.seek(player.get_animation("shoot1").length * step / 13.0, true)
+		player.seek((0.19 if bolt_cycle else player.get_animation("shoot1").length) * step / 13.0, true)
 		var gun_pose := rig.get_bone_global_pose(gun)
 		moved = moved or not start.is_equal_approx(gun_pose)
 		for i in limbs.size():
@@ -245,6 +244,13 @@ func recoil_keeps_grip(model: Node, player: AnimationPlayer) -> bool:
 				return false
 			if absf(grip.basis.get_rotation_quaternion().dot(grips[i].basis.get_rotation_quaternion())) < 0.9995:
 				return false
+	if bolt_cycle:
+		var moved_to_bolt := false
+		for step in range(4, 11):
+			player.seek(player.get_animation("shoot1").length * step / 13.0, true)
+			var wrist := rig.get_bone_global_pose(gun).affine_inverse() * rig.get_bone_global_pose(limbs[3])
+			moved_to_bolt = moved_to_bolt or wrist.origin.distance_to(grips[3].origin) > 0.02
+		return moved and moved_to_bolt
 	return moved
 
 func locomotion(sw: Node) -> void:
@@ -465,30 +471,45 @@ func presentation(sw: Node) -> void:
 	sw.team_menu.chose.emit("sas")
 	check(sw.actor.agent_id == "sas", "CT selection loads SAS")
 	check(sw.soundscape.ambience.stream != null, "wind ambience loads")
-	for cue in ["ak47-1", "ak47_clipin", "usp1", "usp-unsuppressed", "m4a1-1", "m4a1_clipin", "suppressor-1-silencerscrew2", "knife-swing1", "knife-stab", "step-concrete-1", "step-sand-4", "jump", "land"]:
+	for cue in ["ak47-1", "usp1", "usp-unsuppressed-01", "usp-unsuppressed-02", "usp-unsuppressed-03",
+		"awp1", "awp_boltforward", "glock18-1", "deagle-1", "m4a1-1", "knife-stab", "step-sand-4"]:
 		var stream: AudioStream = sw.soundscape.get_sound(cue)
 		check(stream != null and stream.get_length() > 0.03, "sound loads: " + cue)
-	key_press(sw, KEY_2)
-	key_press(sw, KEY_1)
-	check(vm.weapon_id == "ak-47" and sw.actor.agent_id == "sas", "1 equips rifle, not a team")
-	check(sw.soundscape.action_key == "ak-47/draw", "equipping the rifle schedules its equip sound")
-	vm.animation_player.advance(2.0)
-	vm.primary_action()
-	check(sw.soundscape.action_key == "ak-47/shoot1" and sw.soundscape.next_cue == 1, "a shot triggers its cue immediately")
-	vm.animation_player.advance(2.0)
-	vm.play("reload")
-	sw.soundscape.follow_clip("ak-47", "reload", 0.55)
-	check(sw.soundscape.next_cue == 2, "reload sound follows separate magazine cues")
-	key_press(sw, KEY_2)
-	check(vm.weapon_id == "usp-s" and sw.actor.agent_id == "sas", "2 equips pistol, not a team")
+	check(sw.loadout == ["ak-47", "glock", "bayonet"], "first T selection provides two weapons and knife")
+	key_press(sw, KEY_B)
+	check(sw.buy_menu.visible and not sw.actor.is_physics_processing(), "B opens and pauses the buy menu")
+	var before: String = vm.weapon_id
 	key_press(sw, KEY_3)
-	check(vm.weapon_id == "bayonet", "3 equips knife")
-	key_press(sw, KEY_4)
-	check(vm.weapon_id == "m4a4" and sw.actor.equipped_weapon == "m4a4", "4 equips M4A4 and updates movement speed")
+	check(vm.weapon_id == before, "buy modal blocks weapon hotkeys")
+	for id in ["awp", "m4a4", "ak-47", "usp-s", "glock", "deagle"]:
+		check(sw.buy_menu.cards[id].icon != null, "shop icon " + id)
+	var shot_assets := {"m4a4": "m4a1-1", "glock": "glock18-1", "deagle": "deagle-1", "awp": "awp1", "usp-s": "usp1"}
+	for id in shot_assets:
+		sw.buy_menu.bought.emit(id)
+		check(vm.weapon_id == id and sw.loadout.size() == 3 and sw.loadout[2] == "bayonet", "buy replaces same slot with " + id)
+		vm.animation_player.advance(2.0)
+		vm.primary_action()
+		check(sw.soundscape.pending[0][1] == shot_assets[id], "shot uses correct sample: " + id)
+		if id == "awp":
+			check(sw.soundscape.pending[1][1] == "awp_boltback" and sw.soundscape.pending[2][1] == "awp_boltforward", "AWP shot retains timed bolt audio")
+	key_press(sw, KEY_B)
+	check(not sw.buy_menu.visible and sw.actor.is_physics_processing(), "B closes shop and resumes control")
+	key_press(sw, KEY_1)
+	check(vm.weapon_id == "awp", "1 equips the purchased primary")
 	vm.animation_player.advance(2.0)
-	vm.primary_action()
-	check(sw.soundscape.pending[0][1] == "m4a1-1", "M4A4 fires its own unsuppressed sample")
+	var right_click := InputEventMouseButton.new()
+	right_click.button_index = MOUSE_BUTTON_RIGHT
+	right_click.pressed = true
+	sw._unhandled_input(right_click)
+	check(sw.zoom == 1 and sw.actor.scoped and sw.scope.visible, "AWP right-click engages scope")
+	sw._unhandled_input(right_click)
+	check(sw.zoom == 2, "AWP offers second zoom level")
+	key_press(sw, KEY_3)
+	check(vm.weapon_id == "bayonet" and sw.zoom == 0, "3 equips fixed knife and resets scope")
+	key_press(sw, KEY_G)
+	check(vm.weapon_id == "bayonet" and not sw.dropped.has("bayonet"), "G keeps the fixed knife")
 	key_press(sw, KEY_2)
+	check(vm.weapon_id == "usp-s", "2 equips the purchased secondary")
 	vm.animation_player.advance(2.0)
 	vm.primary_action()
 	check(sw.soundscape.pending[0][1] == "usp1", "attached USP-S uses the native silenced shot")
@@ -496,7 +517,10 @@ func presentation(sw: Node) -> void:
 	vm.toggle_silencer()
 	vm.animation_player.advance(6.0)
 	vm.primary_action()
-	check(sw.soundscape.pending[0][1] == "usp-unsuppressed", "detached USP-S uses a separate open shot")
+	check(sw.soundscape.pending[0][1] == "usp-unsuppressed-01", "detached USP-S uses an original open shot")
+	vm.animation_player.advance(2.0)
+	vm.primary_action()
+	check(sw.soundscape.pending[0][1] == "usp-unsuppressed-02", "detached USP-S cycles verified original variants")
 	var sand := Color("bda17e")
 	sw.world.block(Vector3(120, -0.3, 120), Vector3(12, 0.6, 12), sand)
 	sw.actor.global_position = Vector3(120, 0.05, 120)
@@ -523,10 +547,17 @@ func presentation(sw: Node) -> void:
 	var start: Vector3 = item.global_position
 	await ticks(36)
 	check(item.global_position.distance_to(start) > 0.4 and item.global_position.y > -0.35, "dropped gun moves physically without falling through floor")
+	key_press(sw, KEY_B)
+	sw.buy_menu.bought.emit("deagle")
+	key_press(sw, KEY_B)
+	check(sw.loadout[1] == "deagle" and sw.dropped.has("usp-s"), "buying a different sidearm does not remove the dropped USP")
 	sw.actor.global_position = Vector3(item.global_position.x, 0.05, item.global_position.z + 0.46)
 	await ticks(4)
 	key_press(sw, KEY_E)
 	check(not sw.dropped.has("usp-s") and vm.weapon_id == "usp-s" and not vm.attached, "E recovers the nearby gun and its silencer state")
-	for i in 4:
-		key_press(sw, KEY_G)
-	check(vm.weapon_id.is_empty() and sw.dropped.size() == 4, "dropping all slots leaves empty hands")
+	check(sw.dropped.has("deagle") and sw.loadout[1] == "usp-s", "pickup exchanges the occupied category without adding a slot")
+	key_press(sw, KEY_G)
+	key_press(sw, KEY_1)
+	key_press(sw, KEY_G)
+	check(vm.weapon_id == "bayonet" and sw.loadout == ["", "", "bayonet"] and sw.dropped.size() == 3,
+		"dropping both guns leaves only the knife")

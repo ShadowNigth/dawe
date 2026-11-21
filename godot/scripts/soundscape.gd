@@ -2,7 +2,8 @@ extends Node
 
 const DIR := "res://generated/audio/"
 const Assets = preload("res://scripts/assets.gd")
-const SHOTS := {"usp-s": "usp1", "ak-47": "ak47-1", "m4a4": "m4a1-1"}
+const SHOTS := {"usp-s": "usp1", "ak-47": "ak47-1", "m4a4": "m4a1-1", "glock": "glock18-1",
+	"deagle": "deagle-1", "awp": "awp1"}
 
 var sounds: Dictionary = {}
 var voices: Array[AudioStreamPlayer] = []
@@ -13,6 +14,7 @@ var pending: Array = []
 var next_cue := 0
 var action_key := ""
 var action_cues: Dictionary = {}
+var usp_sample := 0
 
 func _ready() -> void:
 	action_cues = Assets.read_json("weapon-sound-cues")
@@ -69,9 +71,10 @@ func step(sand: bool) -> void:
 	step_index = step_index % 4 + 1
 	cue("step-%s-%d" % ["sand" if sand else "concrete", step_index], -14.0)
 
-static func shot_sample(id: String, with_silencer: bool) -> String:
+func shot_sample(id: String, with_silencer: bool) -> String:
 	if id == "usp-s" and not with_silencer:
-		return "usp-unsuppressed"
+		usp_sample = usp_sample % 3 + 1
+		return "usp-unsuppressed-%02d" % usp_sample
 	return SHOTS.get(id, "")
 
 func start_clip(id: String, clip: String, with_silencer: bool) -> void:
@@ -80,7 +83,8 @@ func start_clip(id: String, clip: String, with_silencer: bool) -> void:
 	if clip == "shoot1":
 		var shot := shot_sample(id, with_silencer)
 		var level := -18.0 if id == "usp-s" and with_silencer else -9.0
-		pending = [[0.0, shot, level]] if not shot.is_empty() else []
+		if not shot.is_empty():
+			pending = [[0.0, shot, level]] + pending
 	next_cue = 0
 	follow_clip(id, clip, 0.0)
 

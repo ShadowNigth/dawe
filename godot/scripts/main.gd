@@ -9,13 +9,16 @@ const TeamMenu = preload("res://scripts/team_menu.gd")
 const DroppedWeapon = preload("res://scripts/dropped_weapon.gd")
 const Soundscape = preload("res://scripts/soundscape.gd")
 const DustCollision = preload("res://scripts/dust_collision.gd")
-const WEAPON_SLOTS := ["ak-47", "usp-s", "bayonet", "m4a4"]
+const Arsenal = preload("res://scripts/arsenal.gd")
+const BuyMenu = preload("res://scripts/buy_menu.gd")
 
 var actor := Actor.new()
 var world := World.new()
 var viewmodel := Viewmodel.new()
 var team_menu := TeamMenu.new()
 var soundscape := Soundscape.new()
+var buy_menu := BuyMenu.new()
+var loadout: Array[String] = ["m4a4", "usp-s", Arsenal.KNIFE]
 var dropped: Dictionary = {}
 var feedback := ""
 var team_chosen := false
@@ -23,6 +26,8 @@ var status: Label
 var hint: Label
 var radar: TextureRect
 var crosshair: Label
+var scope: ColorRect
+var zoom := 0
 var spawn := Vector3.ZERO
 var training_only := false
 var mouse_ready_at := 0
@@ -47,6 +52,9 @@ func _ready() -> void:
 	build_hud()
 	add_child(team_menu)
 	team_menu.chose.connect(choose_team)
+	add_child(buy_menu)
+	buy_menu.bought.connect(buy_weapon)
+	buy_menu.dismissed.connect(close_buy_menu)
 	if DisplayServer.get_name() != "headless":
 		open_team_menu()
 	refresh_hud()
@@ -59,7 +67,7 @@ func capture_mouse() -> void:
 func bindings() -> void:
 	var keys := {"forward": KEY_W, "back": KEY_S, "left": KEY_A, "right": KEY_D,
 		"walk": KEY_SHIFT, "crouch": KEY_CTRL, "jump": KEY_SPACE, "team": KEY_M,
-		"ak": KEY_1, "usp": KEY_2, "knife": KEY_3, "m4a4": KEY_4, "camera": KEY_V, "reload": KEY_R, "inspect": KEY_F,
+		"primary": KEY_1, "secondary": KEY_2, "knife": KEY_3, "buy": KEY_B, "camera": KEY_V, "reload": KEY_R, "inspect": KEY_F,
 		"drop": KEY_G, "pickup": KEY_E,
 		"silencer": KEY_T, "reset": KEY_BACKSPACE, "radar": KEY_TAB}
 	for action: String in keys:
@@ -75,28 +83,73 @@ func bindings() -> void:
 		InputMap.action_add_event("silencer", right_click)
 
 func equip_weapon(id: String) -> void:
-	if id == viewmodel.weapon_id or dropped.has(id):
+	if id == viewmodel.weapon_id or (not id.is_empty() and not loadout.has(id)):
 		return
-	actor.stance = "pistol" if id == "usp-s" else "rifle" if id in ["ak-47", "m4a4"] else "knife"
+	set_zoom(0)
+	var slot := Arsenal.slot(id)
+	actor.stance = "pistol" if slot == 1 else "rifle" if slot == 0 else "knife"
 	actor.equipped_weapon = id
 	viewmodel.select(id)
 
-func cycle_weapon(step: int) -> void:
-	var idx := WEAPON_SLOTS.find(viewmodel.weapon_id)
+func cycle_weapon(step: int, from_slot := -1) -> void:
+	var idx := from_slot if from_slot >= 0 else loadout.find(viewmodel.weapon_id)
 	if idx < 0:
-		idx = -1 if step > 0 else WEAPON_SLOTS.size()
-	for i in range(1, WEAPON_SLOTS.size() + 1):
-		var id: String = WEAPON_SLOTS[posmod(idx + i * step, WEAPON_SLOTS.size())]
-		if not dropped.has(id):
+		idx = -1 if step > 0 else loadout.size()
+	for i in range(1, loadout.size() + 1):
+		var id := loadout[posmod(idx + i * step, loadout.size())]
+		if not id.is_empty():
 			equip_weapon(id)
 			return
 
-func open_team_menu() -> void:
+func set_zoom(level: int) -> void:
+	zoom = level
+	actor.camera.fov = [78.0, 40.0, 15.0][zoom]
+	actor.scoped = zoom > 0
+	if zoom > 0:
+		actor.third_person = false
+
+func pause_for_menu() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	actor.set_physics_process(false)
 	actor.reset_motion()
 	radar.hide()
+
+func resume_from_menu() -> void:
+	actor.set_physics_process(true)
+	if DisplayServer.get_name() != "headless":
+		capture_mouse()
+	refresh_hud()
+
+func open_team_menu() -> void:
+	pause_for_menu()
 	team_menu.open()
+	refresh_hud()
+
+func open_buy_menu() -> void:
+	pause_for_menu()
+	buy_menu.open(loadout)
+	refresh_hud()
+
+func close_buy_menu() -> void:
+	buy_menu.hide()
+	resume_from_menu()
+
+func buy_weapon(id: String) -> void:
+	var slot := Arsenal.slot(id)
+	if slot < 0 or slot == 2 or not buy_menu.visible:
+		return
+	# A purchase replaces the occupied category. Remove our previous copy of
+	# this model from the ground so the practice shop never duplicates it.
+	if dropped.has(id):
+		dropped[id].queue_free()
+		dropped.erase(id)
+	if id == "usp-s" and loadout[slot] != id:
+		viewmodel.usp_attached = true
+	loadout[slot] = id
+	equip_weapon(id)
+	buy_menu.update_slots(loadout)
+	soundscape.cue("ui-confirm", -15.0)
+	feedback = Arsenal.label(id) + " equipada"
 	refresh_hud()
 
 func choose_team(id: String) -> void:
@@ -104,23 +157,33 @@ func choose_team(id: String) -> void:
 		return
 	if actor.agent_id != id:
 		actor.set_agent(id)
+	if not team_chosen and id == "phoenix":
+		loadout[0] = "ak-47"
+		loadout[1] = "glock"
+		equip_weapon(loadout[1])
 	team_chosen = true
-	actor.set_physics_process(true)
 	team_menu.hide()
-	if DisplayServer.get_name() != "headless":
-		capture_mouse()
+	resume_from_menu()
 	soundscape.begin_ambient()
 	soundscape.cue("ui-confirm", -15.0)
 	feedback = ""
 	refresh_hud()
 
-func weapon_name(id: String) -> String:
-	return "Bayoneta" if id == "bayonet" else id.to_upper()
-
 func drop_weapon() -> void:
 	var id := viewmodel.weapon_id
-	if not WEAPON_SLOTS.has(id) or dropped.has(id):
+	var slot := Arsenal.slot(id)
+	if slot == 2:
+		feedback = "La bayoneta siempre queda en la ranura 3."
 		return
+	if slot < 0 or not loadout.has(id):
+		return
+	spawn_drop(id)
+	loadout[slot] = ""
+	cycle_weapon(1, slot)
+	soundscape.cue("gear-3", -12.0)
+	feedback = Arsenal.label(id) + " en el suelo · E recoge"
+
+func spawn_drop(id: String) -> void:
 	var item := DroppedWeapon.new()
 	item.configure(id, viewmodel.usp_attached)
 	add_child(item)
@@ -136,11 +199,6 @@ func drop_weapon() -> void:
 	item.linear_velocity = actor.velocity * 0.28 + forward * 1.65 + Vector3.UP * 1.05
 	item.angular_velocity = actor.global_basis.x * 2.8
 	dropped[id] = item
-	cycle_weapon(1)
-	if viewmodel.weapon_id == id:
-		equip_weapon("")
-	soundscape.cue("gear-3", -12.0)
-	feedback = weapon_name(id) + " en el suelo · E recoge"
 
 func pickup_weapon() -> void:
 	var nearest: RigidBody3D = null
@@ -159,13 +217,18 @@ func pickup_weapon() -> void:
 		feedback = "No hay un arma a tu alcance."
 		return
 	var id: String = nearest.weapon_id
+	var slot := Arsenal.slot(id)
+	var outgoing := loadout[slot]
+	if not outgoing.is_empty():
+		spawn_drop(outgoing)
 	if id == "usp-s":
 		viewmodel.usp_attached = nearest.silenced
 	dropped.erase(id)
 	nearest.queue_free()
+	loadout[slot] = id
 	equip_weapon(id)
 	soundscape.cue("gear-1", -12.0)
-	feedback = weapon_name(id) + " recuperada"
+	feedback = Arsenal.label(id) + " recuperada"
 
 func on_clip_started(id: String, clip: String) -> void:
 	soundscape.start_clip(id, clip, viewmodel.usp_attached)
@@ -179,6 +242,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if team_menu.visible:
 		if team_chosen and (event.is_action_pressed("team") or event.is_action_pressed("ui_cancel")) and not event.is_echo():
 			choose_team(actor.agent_id)
+		return
+	if buy_menu.visible:
+		if (event.is_action_pressed("buy") or event.is_action_pressed("ui_cancel")) and not event.is_echo():
+			close_buy_menu()
+		return
+	if event.is_action_pressed("buy") and not event.is_echo():
+		open_buy_menu()
 		return
 	if event.is_action_pressed("team") and not event.is_echo():
 		open_team_menu()
@@ -196,8 +266,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			MOUSE_BUTTON_LEFT:
 				if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 					capture_mouse()
-				else:
-					viewmodel.primary_action()
+				elif viewmodel.primary_action() and zoom > 0:
+					set_zoom(0) # Reveal the AWP's bolt cycle before zooming again.
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if Time.get_ticks_msec() >= mouse_ready_at:
 			actor.aim(event)
@@ -207,22 +277,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		drop_weapon()
 	if event.is_action_pressed("pickup"):
 		pickup_weapon()
-	if event.is_action_pressed("usp"):
-		equip_weapon("usp-s")
-	if event.is_action_pressed("ak"):
-		equip_weapon("ak-47")
+	if event.is_action_pressed("primary") and not loadout[0].is_empty():
+		equip_weapon(loadout[0])
+	if event.is_action_pressed("secondary") and not loadout[1].is_empty():
+		equip_weapon(loadout[1])
 	if event.is_action_pressed("knife"):
-		equip_weapon("bayonet")
-	if event.is_action_pressed("m4a4"):
-		equip_weapon("m4a4")
+		equip_weapon(loadout[2])
 	if event.is_action_pressed("camera"):
+		set_zoom(0)
 		actor.third_person = not actor.third_person
-	if event.is_action_pressed("inspect"):
-		viewmodel.inspect()
-	if event.is_action_pressed("reload"):
-		viewmodel.play("reload")
+	if event.is_action_pressed("inspect") and viewmodel.inspect():
+		set_zoom(0)
+	if event.is_action_pressed("reload") and viewmodel.play("reload"):
+		set_zoom(0)
 	if event.is_action_pressed("silencer"):
-		if viewmodel.weapon_id == "bayonet" and event is InputEventMouseButton:
+		if viewmodel.weapon_id == "awp" and event is InputEventMouseButton and viewmodel.is_idle(viewmodel.active_clip):
+			set_zoom((zoom + 1) % 3)
+			soundscape.cue("zoom", -13.0)
+		elif viewmodel.weapon_id == "bayonet" and event is InputEventMouseButton:
 			viewmodel.play("heavy_miss1")
 		elif viewmodel.toggle_silencer():
 			actor.third_person = false
@@ -287,6 +359,14 @@ func build_hud() -> void:
 	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	crosshair.offset_left = -7
 	crosshair.offset_top = -18
+	scope = ColorRect.new()
+	scope.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var scope_material := ShaderMaterial.new()
+	scope_material.shader = preload("res://scripts/scope.gdshader")
+	scope.material = scope_material
+	hud.add_child(scope)
+	scope.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.move_child(scope, 0)
 	radar = TextureRect.new()
 	radar.position = Vector2(16, 116)
 	radar.size = Vector2(360, 360)
@@ -320,11 +400,13 @@ func refresh_hud() -> void:
 	elif world.textured_sector:
 		area = "DUST II · Puertas Largas"
 	var camera_mode := "3.ª persona" if actor.third_person else "1.ª persona"
-	var weapon_label := "MANOS VACÍAS" if viewmodel.weapon_id.is_empty() else weapon_name(viewmodel.weapon_id).to_upper()
+	var weapon_label := "MANOS VACÍAS" if viewmodel.weapon_id.is_empty() else Arsenal.label(viewmodel.weapon_id).to_upper()
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), weapon_label, camera_mode]
-	hint.text = "WASD mover  ·  Shift caminar  ·  Ctrl agachar  ·  Espacio saltar\n1/2/3/4 o rueda: arma  ·  M equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
+	hint.text = "WASD mover  ·  Shift caminar  ·  Ctrl agachar  ·  Espacio saltar\nB compra  ·  1 primaria / 2 secundaria / 3 cuchillo  ·  Rueda cambia\nM equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
 	if viewmodel.weapon_id == "bayonet":
 		hint.text += "\nBayoneta · Clic izquierdo tajo · Clic derecho estocada"
+	elif viewmodel.weapon_id == "awp":
+		hint.text += "\nR recarga · Clic derecho mira (2 aumentos)"
 	elif viewmodel.silencer != null:
 		hint.text += "\nR recarga · " + viewmodel.silencer_hint()
 	elif not viewmodel.weapon_id.is_empty():
@@ -333,6 +415,8 @@ func refresh_hud() -> void:
 		hint.text += "\n" + feedback
 	if not actor.third_person and viewmodel.model == null and not viewmodel.weapon_id.is_empty():
 		hint.text += "\nModelo de primera persona sin importar."
-	viewmodel.visible = not actor.third_person and not team_menu.visible
-	crosshair.visible = not actor.third_person and not team_menu.visible
-	status.get_parent().visible = not team_menu.visible
+	var modal := team_menu.visible or buy_menu.visible
+	viewmodel.visible = not actor.third_person and not modal and zoom == 0
+	crosshair.visible = not actor.third_person and not modal and zoom == 0
+	scope.visible = zoom > 0 and not modal
+	status.get_parent().visible = not modal

@@ -14,7 +14,7 @@ const JUMP_SPEED := 301.99338 * METERS
 const JUMP_LIMIT := 1.1
 const WALK_MODIFIER := 0.52
 const DUCK_MODIFIER := 0.34
-const TOP_SPEED := {"ak-47": 215.0, "m4a4": 225.0, "usp-s": 240.0, "bayonet": 250.0}
+const TOP_SPEED := {"ak-47": 215.0, "m4a4": 225.0, "usp-s": 240.0, "bayonet": 250.0, "glock": 240.0, "deagle": 230.0, "awp": 200.0}
 
 static func max_speed(weapon: String) -> float:
 	return float(TOP_SPEED.get(weapon, 250.0)) * METERS

@@ -81,7 +81,7 @@ def verify_quality(doc, model, bayonet=False):
             weights = model.accessor(surf['attributes']['WEIGHTS_0'])
             assert np.allclose(weights.sum(axis=1), 1.0, atol=1e-5)
             mat = doc['materials'][surf['material']]
-            if mat['name'] != 'weapon-color':
+            if not mat['name'].startswith('weapon-'):
                 skinned_hands += np.count_nonzero((weights > 0.00001).sum(axis=1) > 1)
             if mat['name'] != 'skin':
                 assert 'occlusionTexture' in mat
@@ -120,7 +120,7 @@ def angular_distance(a, b):
     return np.degrees(np.arccos(np.clip((inner - 1) / 2, -1, 1)))
 
 
-def verify_grips(doc, model):
+def verify_grips(doc, model, bolt_cycle=False):
     clips = {clip['name']: clip for clip in doc['animations']}
     idle = animation_poses(doc, model, clips['idle'])
     idle_gun_inverse = np.linalg.inv(idle['weapon_offset'])
@@ -143,8 +143,11 @@ def verify_grips(doc, model):
             if name == 'shoot1':
                 for limb in (side+'Arm', fore, hand):
                     relative = gun_inverse @ pose[limb]
-                    assert np.max(angular_distance(relative, idle_gun_inverse @ idle[limb])) < .2, limb
-                    assert np.allclose(relative[:, :3, 3], (idle_gun_inverse @ idle[limb])[:, :3, 3], atol=1e-4), limb
+                    recoil = relative[:7] if bolt_cycle else relative
+                    assert np.max(angular_distance(recoil, idle_gun_inverse @ idle[limb])) < .2, limb
+                    assert np.allclose(recoil[:, :3, 3], (idle_gun_inverse @ idle[limb])[:, :3, 3], atol=1e-4), limb
+                    if bolt_cycle and limb == 'RightHand':
+                        assert np.max(np.linalg.norm(relative[7:, :3, 3] - recoil[0, :3, 3], axis=1)) > .02
     print(f'  Giro máximo de muñeca por fotograma: {wrist_delta:.1f}°; agarres fijos durante el disparo')
 
 
@@ -166,7 +169,14 @@ def main():
         if args.quality_viewmodels and name in GODOT_WEAPON_CLIPS:
             verify_quality(doc, glb, bayonet=name == 'bayonet')
             if name != 'bayonet':
-                verify_grips(doc, glb)
+                verify_grips(doc, glb, bolt_cycle=name == 'awp')
+        if name == 'm4a4':
+            rifle, = (p for mesh in doc['meshes'] for p in mesh['primitives']
+                      if doc['materials'][p['material']]['name'] == 'weapon-color')
+            uv = glb.accessor(rifle['attributes']['TEXCOORD_0'])
+            assert (np.ptp(uv, axis=0) > .9).all(), 'M4A4 atlas UVs were not expanded'
+        if name == 'awp':
+            assert 'weapon-scope-color' in {mat['name'] for mat in doc['materials']}
         if name == 'bayonet':
             blade, = (surf for mesh in doc['meshes'] for surf in mesh['primitives']
                       if doc['materials'][surf['material']]['name'] == 'weapon-color')

@@ -30,7 +30,8 @@ AK_CLIPS = ("idle", "draw", "shoot1", "reload", "lookat01")
 USP_CLIPS = (*AK_CLIPS, "silencer_attach", "silencer_detach")
 WEAPON_CLIPS = {"ak-47": AK_CLIPS, "usp-s": USP_CLIPS}
 BAYONET_CLIPS = ("idle1", "idle2", "draw", "light_miss1", "light_miss2", "heavy_miss1", "lookat01", "lookat01_draw")
-GODOT_WEAPON_CLIPS = {**WEAPON_CLIPS, "bayonet": BAYONET_CLIPS, "m4a4": AK_CLIPS}
+GODOT_FIREARM_CLIPS = {**WEAPON_CLIPS, **dict.fromkeys(("m4a4", "glock", "deagle", "awp"), AK_CLIPS)}
+GODOT_WEAPON_CLIPS = {**GODOT_FIREARM_CLIPS, "bayonet": BAYONET_CLIPS}
 CS2GO_MODELS = (
     "maps/dust2.glb.gz",
     "maps/dust2-physics.glb.gz",
@@ -45,12 +46,13 @@ CS2GO_MODELS = (
     "ak-47.glb",
     "usp-s.glb",
     "bayonet.glb",
+    "viewmodels/m4a4-hd.glb",
     "bayonet.source.json",
     "animations/bayonet/source.json",
     *(f"animations/bayonet/{clip}.glb" for clip in BAYONET_CLIPS),
     *(
         path
-        for weapon, clips in {**WEAPON_CLIPS, "m4a4": AK_CLIPS}.items()
+        for weapon, clips in GODOT_FIREARM_CLIPS.items()
         for path in (
             f"viewmodels/{weapon}.glb",
             *(f"viewmodels/{weapon}/{clip}.glb" for clip in clips),

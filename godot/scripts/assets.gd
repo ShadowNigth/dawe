@@ -27,3 +27,13 @@ static func read_json(name: String) -> Dictionary:
 		if data is Dictionary:
 			return data
 	return {}
+
+static func load_texture(id: String) -> Texture2D:
+	var path := DIR + id + ".png"
+	if ResourceLoader.exists(path, "Texture2D"):
+		return load(path) as Texture2D
+	if FileAccess.file_exists(path):
+		var image := Image.load_from_file(path)
+		if image != null and not image.is_empty():
+			return ImageTexture.create_from_image(image)
+	return null

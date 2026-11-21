@@ -32,6 +32,7 @@ var current_clip := ""
 var frozen_pose := false
 var stance := "pistol"
 var equipped_weapon := "usp-s"
+var scoped := false
 var fallback: MeshInstance3D
 var eye_height := STAND_EYE
 var step_camera_offset := 0.0
@@ -136,7 +137,7 @@ func _physics_process(delta: float) -> void:
 	var desired := transform.basis * Vector3(move_direction.x, 0, move_direction.y)
 	var wish := Vector2(desired.x, desired.z).normalized()
 	var walking := Input.is_action_pressed("walk")
-	var max_run := Movement.max_speed(equipped_weapon)
+	var max_run := 100.0 * Movement.METERS if scoped else Movement.max_speed(equipped_weapon)
 	var modifier := Movement.DUCK_MODIFIER if crouched else Movement.WALK_MODIFIER if walking else 1.0
 	var horizontal := Vector2(velocity.x, velocity.z)
 	var grounded := is_on_floor()

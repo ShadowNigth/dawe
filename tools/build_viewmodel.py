@@ -117,7 +117,7 @@ def frame_pose(rig, clip, parents, weapon_parts):
     return pose
 
 
-def read_duration(path, allow_short_secondary=False):
+def read_duration(path, allow_short_secondary=False, allow_single=False):
     with path.open('rb') as file:
         file.seek(12)
         size, kind = struct.unpack('<I4s', file.read(8))
@@ -126,6 +126,8 @@ def read_duration(path, allow_short_secondary=False):
         data = json.loads(file.read(size))
     durations = [max(data['accessors'][s['input']]['max'][0] for s in a['samplers'])
                  for a in data['animations']]
+    if allow_single and len(durations) == 1:
+        return durations[0]
     if len(durations) != 2 or (not allow_short_secondary and abs(durations[0] - durations[1]) > 1.1 / FPS):
         raise ValueError(f'Se esperaban dos pistas sincronizadas: {path}')
     # Algunos clips de AK terminan un fotograma antes en la pista secundaria.
@@ -190,8 +192,8 @@ def import_clip(path):
     return nodes
 
 
-def bake_sequence(path, rig, nodes, parents, weapon_parts, allow_short_secondary=False):
-    duration = read_duration(path, allow_short_secondary)
+def bake_sequence(path, rig, nodes, parents, weapon_parts, allow_short_secondary=False, allow_single=False):
+    duration = read_duration(path, allow_short_secondary, allow_single)
     intervals = round(duration * FPS)
     scene = bpy.context.scene
     for i in range(intervals + 1):
