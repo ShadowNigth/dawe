@@ -4,7 +4,7 @@
 
 ## Descargar el proyecto con los activos incluidos
 
-**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Silverhand-con-activos.zip?raw=true)**
+**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Silverhand-Agarres-con-activos.zip?raw=true)**
 
 El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, y las versiones mejoradas de la USP-S y la AK-47 con el brazo cromado de Silverhand y el implante de la mano derecha del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
 
@@ -17,7 +17,7 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | WASD / ratón | Mover / mirar |
 | Shift / Ctrl / Espacio | Correr / agacharse / saltar |
 | 1 / 2 | SAS / Phoenix |
-| 3 / 4 | USP-S / AK-47 |
+| Rueda del ratón / 3 / 4 | Alternar entre USP-S y AK-47 / equipar directamente |
 | V | Alternar entre primera y tercera persona |
 | Clic izquierdo / R / F | Animación de disparo / recarga / inspección |
 | Clic derecho (o T) | Quitar o colocar el silenciador con la USP-S equipada. Si estás en tercera persona, cambia a primera para mostrar la animación. |
@@ -91,7 +91,7 @@ godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y la visibilidad del silenciador antes y después de los dos eventos, y el estado al cambiar de cámara y de arma. `--require-preview` comprueba además el recorte texturizado de la demo.
+La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 

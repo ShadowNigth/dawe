@@ -66,6 +66,7 @@ func weapons(sw: Node) -> void:
 			continue
 		check(has_texture(sw.viewmodel.model), "%s has textures on its first-person model" % id)
 		check(pose_changes(sw.viewmodel.model, player, "reload"), "%s reload moves the rig" % id)
+		check(recoil_keeps_grip(sw.viewmodel.model, player), "%s wrists follow recoil without twisting off the grip" % id)
 		for clip in ["idle", "draw", "shoot1", "reload", "lookat01"]:
 			check(player.has_animation(clip), "%s %s" % [id, clip])
 		if id == "usp-s":
@@ -103,11 +104,23 @@ func silencer_actions(sw: Node) -> void:
 	sw._unhandled_input(key)
 	sw._unhandled_input(key)
 	check(not sw.actor.third_person and not vm.silencer.visible, "changing camera preserves the detached state")
-	vm.select("ak-47", false)
+	var wheel := InputEventMouseButton.new()
+	wheel.pressed = true
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "ak-47" and sw.actor.stance == "rifle" and vm.active_clip == "draw", "scroll up equips the AK-47 and plays draw")
+	wheel.pressed = false
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "ak-47", "wheel release does not switch slots")
+	vm.animation_player.advance(5.0)
 	sw._unhandled_input(right_click)
 	check(vm.active_clip == "idle", "right-click does not start a silencer action on the AK-47")
-	vm.select("usp-s", false)
-	check(not vm.silencer.visible and not vm.attached, "USP-S remembers the detached state after weapon swap")
+	wheel.pressed = true
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "usp-s" and sw.actor.stance == "pistol" and vm.active_clip == "draw", "scroll down equips the USP-S and plays draw")
+	check(not vm.silencer.visible and not vm.attached, "USP-S remembers the detached state after scrolling")
+	vm.animation_player.advance(5.0)
 	right_click.pressed = false
 	sw._unhandled_input(right_click)
 	check(vm.active_clip == "idle", "mouse release does not trigger the action")
@@ -158,6 +171,35 @@ func pose_changes(model: Node, player: AnimationPlayer, clip: String) -> bool:
 		if absf(initial[i].dot(rig.get_bone_pose_rotation(i))) < 0.999:
 			return true
 	return false
+
+func recoil_keeps_grip(model: Node, player: AnimationPlayer) -> bool:
+	var rig := first_skeleton(model)
+	if rig == null or not player.has_animation("shoot1"):
+		return false
+	var gun := rig.find_bone("weapon_offset")
+	var limbs: Array[int] = []
+	for bone in ["LeftForeArm", "LeftHand", "RightForeArm", "RightHand"]:
+		limbs.append(rig.find_bone(bone))
+	if gun < 0 or limbs.has(-1):
+		return false
+	player.play("shoot1", 0.0)
+	player.seek(0.0, true)
+	var start := rig.get_bone_global_pose(gun)
+	var grips: Array[Transform3D] = []
+	for limb in limbs:
+		grips.append(start.affine_inverse() * rig.get_bone_global_pose(limb))
+	var moved := false
+	for step in range(1, 13):
+		player.seek(player.get_animation("shoot1").length * step / 13.0, true)
+		var gun_pose := rig.get_bone_global_pose(gun)
+		moved = moved or not start.is_equal_approx(gun_pose)
+		for i in limbs.size():
+			var grip := gun_pose.affine_inverse() * rig.get_bone_global_pose(limbs[i])
+			if grip.origin.distance_to(grips[i].origin) > 0.002:
+				return false
+			if absf(grip.basis.get_rotation_quaternion().dot(grips[i].basis.get_rotation_quaternion())) < 0.9995:
+				return false
+	return moved
 
 func locomotion(sw: Node) -> void:
 	Input.action_press("forward")

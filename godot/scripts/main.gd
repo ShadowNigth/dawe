@@ -56,15 +56,29 @@ func bindings() -> void:
 	if not InputMap.action_has_event("silencer", right_click):
 		InputMap.action_add_event("silencer", right_click)
 
+func equip_weapon(id: String) -> void:
+	if id == viewmodel.weapon_id:
+		return
+	actor.stance = "pistol" if id == "usp-s" else "rifle"
+	viewmodel.select(id)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-			capture_mouse()
-		else:
-			viewmodel.play("shoot1")
+	if event is InputEventMouseButton and event.pressed:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN:
+				# There are two slots: scrolling either way selects the other one.
+				equip_weapon("ak-47" if viewmodel.weapon_id == "usp-s" else "usp-s")
+				refresh_hud()
+				get_viewport().set_input_as_handled()
+				return
+			MOUSE_BUTTON_LEFT:
+				if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+					capture_mouse()
+				else:
+					viewmodel.play("shoot1")
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if Time.get_ticks_msec() >= mouse_ready_at:
 			actor.aim(event)
@@ -75,11 +89,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("phoenix"):
 		actor.set_agent("phoenix")
 	if event.is_action_pressed("usp"):
-		actor.stance = "pistol"
-		viewmodel.select("usp-s")
+		equip_weapon("usp-s")
 	if event.is_action_pressed("ak"):
-		actor.stance = "rifle"
-		viewmodel.select("ak-47")
+		equip_weapon("ak-47")
 	if event.is_action_pressed("camera"):
 		actor.third_person = not actor.third_person
 	if event.is_action_pressed("inspect"):
@@ -172,7 +184,7 @@ func refresh_hud() -> void:
 		area = "DUST II · Puertas Largas"
 	var camera_mode := "3.ª persona" if actor.third_person else "1.ª persona"
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), viewmodel.weapon_id.to_upper(), camera_mode]
-	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2 agente  ·  3/4 arma  ·  V cámara  ·  R recarga  ·  F inspección  ·  Tab radar"
+	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2 agente  ·  Rueda o 3/4 arma  ·  V cámara  ·  R recarga  ·  F inspección  ·  Tab radar"
 	if viewmodel.silencer != null:
 		hint.text += "\n" + viewmodel.silencer_hint()
 	if not actor.third_person and viewmodel.model == null:

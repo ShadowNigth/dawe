@@ -89,6 +89,63 @@ def verify_quality(doc, model):
     assert skinned_hands > 1000 and original_tris > 25000
     print(f'  {original_tris:,} triángulos y {skinned_hands:,} vértices de brazo con múltiples pesos')
 
+def animation_poses(doc, model, clip):
+    # Generated weapon tracks share one frame grid. Compose their local TR keys
+    # in hierarchy order to measure grip stability in weapon space.
+    sample = clip['samplers'][0]['input']
+    joints = doc['skins'][0]['joints']
+    count = len(model.accessor(sample))
+    poses = {joint: np.tile(np.eye(4), (count, 1, 1)) for joint in joints}
+    for channel in clip['channels']:
+        track = clip['samplers'][channel['sampler']]
+        assert track['input'] == sample
+        target = channel['target']
+        values = model.accessor(track['output'])
+        if target['path'] == 'rotation':
+            poses[target['node']][:, :3, :3] = [rotation(q) for q in values]
+        elif target['path'] == 'translation':
+            poses[target['node']][:, :3, 3] = values
+    for joint in joints:
+        for child in doc['nodes'][joint].get('children', []):
+            if child in poses:
+                poses[child] = poses[joint] @ poses[child]
+    return {doc['nodes'][i]['name']: pose for i, pose in poses.items()}
+
+
+def angular_distance(a, b):
+    # trace(transpose(a) @ b) for rotation matrices.
+    inner = np.sum(a[..., :3, :3] * b[..., :3, :3], axis=(-2, -1))
+    return np.degrees(np.arccos(np.clip((inner - 1) / 2, -1, 1)))
+
+
+def verify_grips(doc, model):
+    clips = {clip['name']: clip for clip in doc['animations']}
+    idle = animation_poses(doc, model, clips['idle'])
+    idle_gun_inverse = np.linalg.inv(idle['weapon_offset'])
+    wrist_delta = 0.0
+    for name, clip in clips.items():
+        pose = animation_poses(doc, model, clip)
+        gun_inverse = np.linalg.inv(pose['weapon_offset'])
+        for side in ('Left', 'Right'):
+            hand, fore = side+'Hand', side+'ForeArm'
+            if name != 'idle':
+                local = np.linalg.inv(pose[fore]) @ pose[hand]
+                step = float(angular_distance(local[1:], local[:-1]).max())
+                wrist_delta = max(step, wrist_delta)
+                assert step < 50., (name, side, 'wrist discontinuity', step)
+                for limb in (side+'Arm', fore, hand):
+                    end_in_gun = gun_inverse[-1] @ pose[limb][-1]
+                    rest_in_gun = idle_gun_inverse[0] @ idle[limb][0]
+                    end_angle = float(angular_distance(end_in_gun, rest_in_gun))
+                    assert end_angle < 12., (name, limb, 'idle transition', end_angle)
+            if name == 'shoot1':
+                for limb in (side+'Arm', fore, hand):
+                    relative = gun_inverse @ pose[limb]
+                    assert np.max(angular_distance(relative, idle_gun_inverse @ idle[limb])) < .2, limb
+                    assert np.allclose(relative[:, :3, 3], (idle_gun_inverse @ idle[limb])[:, :3, 3], atol=1e-4), limb
+    print(f'  Giro máximo de muñeca por fotograma: {wrist_delta:.1f}°; agarres fijos durante el disparo')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--quality-viewmodels', action='store_true', help='exige las armas mejoradas con PBR y pesos múltiples')
@@ -106,6 +163,7 @@ def main():
         print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
         if args.quality_viewmodels and name in WEAPON_CLIPS:
             verify_quality(doc, glb)
+            verify_grips(doc, glb)
     doc, _ = read(args.assets / 'dust2.glb')
     assert sum(len(m['primitives']) for m in doc['meshes']) == 691
     assert len(doc['images']) == 564

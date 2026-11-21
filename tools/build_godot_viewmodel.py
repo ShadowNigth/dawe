@@ -12,6 +12,7 @@ from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, arm_names, f
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
 from import_assets import WEAPON_CLIPS
 from bake_multirig_material import bake_material
+from retarget_godot_arms import GripRetarget
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
@@ -99,7 +100,9 @@ def pose_with_support(pose, rest, support):
         amount = amount * amount * (3 - 2 * amount)
         orient = first.to_quaternion().slerp(second.to_quaternion(), amount)
         pose[name] = orient.to_matrix().to_4x4() @ arm_rest
-        pose[name].translation = (first @ arm_rest.translation).lerp(second @ arm_rest.translation, amount)
+        # One shared hinge at the wrist: blending two translated points pulls
+        # the skin toward the axis of rotation, pinching the joint.
+        pose[name].translation = pose[hand].translation + orient @ (arm_rest.translation - rest[hand].translation)
     return pose
 
 
@@ -140,6 +143,7 @@ def build(assets, output, weapon_name):
     only_core = {name: parent for name, parent in parents.items() if name not in support}
     idle_pose = frame_pose(rig, idle, only_core, weapon.parts)
     rest.update({name: idle_pose[name] for name in ('root', *weapon.parts)})
+    GripRetarget(rest, idle_pose).apply(idle_pose, 'idle')
     output.mkdir(parents=True)
     image_file(bpy.data.images['a0_000_ma__c_base_hq_d01'], output / 'skin.png')
     for suffix, file in [('color', 'weapon-color.webp'), ('ORM', 'weapon-orm.webp'), ('normal', 'weapon-normal.webp')]:
@@ -173,7 +177,14 @@ def build(assets, output, weapon_name):
         path = directory / weapon_name / f'{name}.glb'
         nodes = idle if name == 'idle' else import_clip(path)
         poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts))
-        write_smd(output / f'{name}.smd', parents, (pose_with_support(p, rest, support) for p in poses))
+        retarget = GripRetarget(rest, idle_pose)
+        def stable_poses():
+            for i, pose in enumerate(poses):
+                settle = max(0.0, 1.0 - (len(poses) - 1 - i) / 12) if len(poses) > 12 else 0.0
+                settle = settle * settle * (3 - 2 * settle)
+                yield pose_with_support(retarget.apply(pose, name, settle), rest, support)
+
+        write_smd(output / f'{name}.smd', parents, stable_poses())
         if name.startswith('silencer_'):
             events[name] = [(i / FPS, value) for i, value in enumerate(visible) if i == 0 or value != visible[i-1]]
             if len(events[name]) != 2:
