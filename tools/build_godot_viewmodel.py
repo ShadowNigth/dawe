@@ -15,8 +15,8 @@ from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, Weapon, arm_
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
 from import_assets import GODOT_WEAPON_CLIPS
 from bake_multirig_material import bake_material
-from retarget_godot_arms import GripRetarget, WristContinuity
-from fit_godot_grip import RightGrip
+from retarget_godot_arms import ArmGuide, GripRetarget, ease, moderate_inspection, pin_hand, seat_fingers
+from fit_godot_grip import SurfaceGrip
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
@@ -258,9 +258,10 @@ def build(assets, output, weapon_name):
         arm_geometry[side] = geometry
         write_smd(output / f'{side.lower()}_mesh.smd', parents, [rest], geometry)
         print(f'{side}: {len(geometry)} tris originales', flush=True)
-    grip_fit = RightGrip(weapons, arm_geometry['Right'], parents, rest)
-    grip_fit.fit(idle_pose, lambda pose: pose_with_support(pose, rest, support))
-    grip_fit.apply(idle_pose)
+    grip = {side: SurfaceGrip(weapons, arm_geometry[side], parents, rest, side) for side in ('Right', 'Left')}
+    for seat in grip.values():
+        seat.fit(idle_pose, lambda pose: pose_with_support(pose, rest, support))
+        seat.apply(idle_pose)
     write_smd(output / 'skin_bind.smd', parents, [rest])
     events = {}
     for name in GODOT_WEAPON_CLIPS[weapon_name]:
@@ -268,8 +269,21 @@ def build(assets, output, weapon_name):
         nodes = idle if name == idle_name else import_clip(path)
         poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=weapon_name in EXTRA_WEAPONS, allow_single=weapon_name == 'deagle'))
         retarget = GripRetarget(rest, idle_pose)
-        continuity = WristContinuity() if weapon_name == 'deagle' and name != 'shoot1' else None
+        guide = ArmGuide(idle_pose, rest)
+        right_seat = idle_pose['weapon_offset'].inverted() @ idle_pose['RightHand']
+        left_seat = idle_pose['weapon_offset'].inverted() @ idle_pose['LeftHand']
         bolt_cycle = weapon_name == 'awp' and name == 'shoot1'
+        reverse_grip = None
+        if knife and name == 'heavy_miss1':
+            # The stab opens with an authored reverse grip; fit that grip
+            # independently in the same rest-weapon space as the forward hold.
+            source = poses[0]
+            aligned = rest['weapon_offset'] @ source['weapon_offset'].inverted()
+            reverse_idle = {joint: aligned @ matrix for joint, matrix in source.items()}
+            reverse_grip = SurfaceGrip(weapons, arm_geometry['Right'], parents, rest, 'Right')
+            reverse_grip.fit(reverse_idle, lambda p: pose_with_support(p, rest, support))
+            reverse_grip.apply(reverse_idle)
+            reverse_seat = source['weapon_offset'].inverted() @ source['RightHand']
         def stable_poses():
             for i, pose in enumerate(poses):
                 settle = max(0.0, 1.0 - (len(poses) - 1 - i) / 12) if len(poses) > 12 else 0.0
@@ -277,12 +291,39 @@ def build(assets, output, weapon_name):
                 # Lock the first AWP recoil frames, not the hand reaching for its bolt.
                 release = min(1.0, max(0.0, (i - 6) / 8)) if bolt_cycle else 0.0
                 recoil_mix = 1.0 - release * release * (3.0 - 2.0 * release)
+                if weapon_name == 'deagle' and name == 'lookat01':
+                    moderate_inspection(pose, idle_pose)
                 retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle,
                                lock_right=not (knife or bolt_cycle), recoil_mix=recoil_mix)
-                if continuity:
-                    continuity.apply(pose)
-                if name != 'shoot1':  # Recoil already follows the corrected idle grip.
-                    grip_fit.apply(pose)
+                strength = 1.0
+                if knife:
+                    local = pose['weapon_offset'].inverted() @ pose['RightHand']
+                    gap = (local.translation - right_seat.translation).length
+                    turn = abs(local.to_quaternion().dot(right_seat.to_quaternion()))
+                    # Pin the seated grip, not the intentional flip/regrasp.
+                    strength = (1-ease((gap-.40)/1.10)) * ease((turn-.88)/.10)
+                    if name in ('idle1', 'idle2', 'light_miss1', 'light_miss2'):
+                        strength = 1.0
+                    pin_hand(pose, idle_pose, 'Right', strength)
+                if name != 'shoot1' or (bolt_cycle and release > 0.0):
+                    right_limit = 32 if weapon_name == 'deagle' and name == 'lookat01' else 50 if not knife else 49
+                    guide.apply(pose, 'Right', right_limit)
+                    guide.apply(pose, 'Left', 63, 20)
+                    if name != 'shoot1':
+                        grip['Right'].apply(pose, strength)
+                        seat_fingers(pose, idle_pose, strength * .86)
+                        if reverse_grip:
+                            gap = (local.translation - reverse_seat.translation).length
+                            turn = abs(local.to_quaternion().dot(reverse_seat.to_quaternion()))
+                            reverse_weight = (1-ease((gap-.30)/.85)) * ease((turn-.88)/.10)
+                            reverse_grip.apply(pose, reverse_weight)
+                            seat_fingers(pose, reverse_idle, reverse_weight * .84)
+                        offhand = pose['weapon_offset'].inverted() @ pose['LeftHand']
+                        gap = (offhand.translation - left_seat.translation).length
+                        turn = abs(offhand.to_quaternion().dot(left_seat.to_quaternion()))
+                        # Reapply the support grip only while near its parked pose;
+                        # preserve the fingers reaching for parts or showing the knife.
+                        grip['Left'].apply(pose, (1-ease((gap-.35)/.9)) * ease((turn-.87)/.12))
                 yield pose_with_support(pose, rest, support)
 
         write_smd(output / f'{name}.smd', parents, stable_poses())

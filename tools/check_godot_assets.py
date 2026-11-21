@@ -151,6 +151,40 @@ def verify_grips(doc, model, bolt_cycle=False):
     print(f'  Giro máximo de muñeca por fotograma: {wrist_delta:.1f}°; agarres fijos durante el disparo')
 
 
+def verify_wrist_and_grip_limits(doc, model, weapon):
+    """Check absolute wrist angles and limb lengths, not just frame-to-frame jitter."""
+    clips = {clip['name']: clip for clip in doc['animations']}
+    idle = animation_poses(doc, model, clips['idle1' if weapon == 'bayonet' else 'idle'])
+    default_grip = np.linalg.inv(idle['weapon_offset'][0]) @ idle['RightHand'][0]
+    worst = {"Right": 0.0, "Left": 0.0}
+    for name, clip in clips.items():
+        pose = animation_poses(doc, model, clip)
+        for side in ('Right', 'Left'):
+            upper, fore, hand = (side + part for part in ('Arm', 'ForeArm', 'Hand'))
+            for parent, child in ((upper, fore), (fore, hand)):
+                rest_length = np.linalg.norm(idle[parent][0, :3, 3] - idle[child][0, :3, 3])
+                lengths = np.linalg.norm(pose[parent][:, :3, 3] - pose[child][:, :3, 3], axis=1)
+                assert np.max(np.abs(lengths-rest_length)) < .002, (weapon, name, child, 'arm stretch')
+            neutral = np.linalg.inv(idle[fore][0]) @ idle[hand][0]
+            wrist = np.linalg.inv(pose[fore]) @ pose[hand]
+            angle = float(angular_distance(neutral, wrist).max())
+            limit = 33.0 if weapon == 'deagle' and name == 'lookat01' and side == 'Right' else 65.0
+            assert angle <= limit, (weapon, name, side, 'wrist outside guide', angle)
+            if len(wrist) > 1:
+                step = float(angular_distance(wrist[1:], wrist[:-1]).max())
+                assert step < 23.0, (weapon, name, side, 'wrist discontinuity', step)
+            if name.startswith('lookat'):
+                worst[side] = max(worst[side], angle)
+        anchored = name in ('idle1', 'idle2', 'light_miss1', 'light_miss2') if weapon == 'bayonet' else name != 'idle'
+        if anchored:
+            held = np.linalg.inv(pose['weapon_offset']) @ pose['RightHand']
+            if weapon == 'awp' and name == 'shoot1':
+                held = held[:7] # The right hand releases to cycle the bolt after recoil.
+            assert np.max(np.linalg.norm(held[:, :3, 3] - default_grip[:3, 3], axis=1)) < .001, (weapon, name, 'grip drift')
+            assert np.max(angular_distance(held, default_grip)) < .25, (weapon, name, 'grip roll')
+    print(f"  Inspección: muñeca derecha {worst['Right']:.1f}°, izquierda {worst['Left']:.1f}°; largo de brazo constante y agarre anclado")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--quality-viewmodels', action='store_true', help='exige las armas mejoradas con PBR y pesos múltiples')
@@ -168,6 +202,7 @@ def main():
         print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
         if args.quality_viewmodels and name in GODOT_WEAPON_CLIPS:
             verify_quality(doc, glb, bayonet=name == 'bayonet')
+            verify_wrist_and_grip_limits(doc, glb, name)
             if name != 'bayonet':
                 verify_grips(doc, glb, bolt_cycle=name == 'awp')
         if name == 'm4a4':

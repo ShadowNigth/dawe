@@ -80,26 +80,104 @@ class GripRetarget:
         return pose
 
 
-class WristContinuity:
-    """Rate-limit only pathological wrist snaps, retaining the authored positions."""
+def angle_between(a, b):
+    return math.acos(max(-1.0, min(1.0, a.dot(b))))
 
-    def __init__(self):
+
+def ease(value):
+    value = max(0.0, min(1.0, value))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def pin_hand(pose, idle, side, strength=1.0):
+    """Carry every finger with the wrist; never move the blade/receiver alone."""
+    _, _, hand, *fingers = arm_names(side)
+    target = pose['weapon_offset'] @ idle['weapon_offset'].inverted() @ idle[hand]
+    wrist = pose[hand].lerp(target, strength)
+    correction = wrist @ pose[hand].inverted()
+    pose[hand] = wrist
+    for finger in fingers:
+        pose[finger] = correction @ pose[finger]
+
+
+def seat_fingers(pose, idle, strength):
+    """Keep the three wrap fingers seated; leave index/trigger and thumb authored."""
+    hand = 'RightHand'
+    frame = pose[hand] @ idle[hand].inverted()
+    for digit in ('Middle', 'Ring', 'Pinky'):
+        for index in range(1, 4):
+            name = f'{hand}{digit}{index}'
+            pose[name] = pose[name].lerp(frame @ idle[name], strength)
+
+
+def moderate_inspection(pose, idle):
+    """Retain the Deagle's inspection beats without the near-upside-down flip."""
+    old = pose['weapon_offset']
+    anchor = idle['weapon_offset']
+    base = anchor.to_quaternion()
+    authored = old.to_quaternion()
+    angle = 2.0 * math.acos(min(1.0, abs(base.dot(authored))))
+    knee, tail = math.radians(66), math.radians(40)
+    if angle <= knee:
+        return
+    reduced = knee + tail * (1.0 - math.exp(-(angle - knee) / tail))
+    # Rotate the presentation around the current grip, not around the muzzle.
+    pivot = pose['RightHand'].translation
+    rotation = base.slerp(authored, reduced / angle)
+    delta = transform(rotation, old.translation) @ old.inverted()
+    delta.translation += pivot - delta @ pivot
+    for name in ('weapon_offset', 'slide', 'clip', 'hammer', 'trigger', *arm_names('Left'), *arm_names('Right')):
+        if name in pose:
+            pose[name] = delta @ pose[name]
+
+
+class ArmGuide:
+    """Swing the elbow off the hand's grip axis rather than twisting the wrist."""
+
+    def __init__(self, idle, bind):
+        self.idle, self.bind = idle, bind
         self.previous = {}
 
-    def apply(self, pose):
-        for side in ('Left', 'Right'):
-            _, fore, hand, *fingers = arm_names(side)
-            fore_rotation = pose[fore].to_quaternion()
-            local = fore_rotation.inverted() @ pose[hand].to_quaternion()
-            old = self.previous.get(hand)
-            if old is not None:
-                angle = 2.0 * math.acos(min(1.0, abs(old.dot(local))))
-                limit = math.radians(42)
-                if angle > limit:
-                    local = old.slerp(local, limit / angle)
-                    target = transform(fore_rotation @ local, pose[hand].translation)
-                    correction = target @ pose[hand].inverted()
-                    pose[hand] = target
-                    for finger in fingers:
-                        pose[finger] = correction @ pose[finger]
-            self.previous[hand] = local
+    def apply(self, pose, side, wrist_limit, limit_step=15):
+        upper, fore, hand, *_ = arm_names(side)
+        palm = pose[hand].translation
+        current = palm - pose[fore].translation
+        arm = pose[fore].translation - pose[upper].translation
+        if current.length < 1e-5 or arm.length < 1e-5:
+            return
+        guided = pose[hand] @ self.idle[hand].inverted()
+        fore_reference = guided @ self.idle[fore]
+        axis = (palm - fore_reference.translation).normalized()
+        authored = current.normalized()
+        swing = angle_between(axis, authored)
+        # A soft cone avoids a sharp change in velocity at the limit. Reduce
+        # the source elbow influence near antiparallel to avoid a sign flip.
+        knee, limit = math.radians(wrist_limit * .68), math.radians(wrist_limit)
+        bounded = swing if swing <= knee else knee + (limit-knee) * (1-math.exp(-(swing-knee)/(limit-knee)))
+        bounded *= 1.0 - ease((math.degrees(swing) - 118.0) / 53.0)
+        adjustment = Quaternion().slerp(axis.rotation_difference(authored), bounded / max(swing, 1e-7))
+        desired = adjustment @ fore_reference.to_quaternion()
+        local = pose[hand].to_quaternion().inverted() @ desired
+        old = self.previous.get(side)
+        if old is not None:
+            angle = 2.0 * math.acos(min(1.0, abs(old.dot(local))))
+            if angle > math.radians(limit_step):
+                local = old.slerp(local, math.radians(limit_step) / angle)
+        self.previous[side] = local
+        rotation = pose[hand].to_quaternion() @ local
+        rest_axis = (self.bind[hand].translation - self.bind[fore].translation).normalized()
+        local_axis = self.bind[fore].to_quaternion().inverted() @ rest_axis
+        length = (self.idle[hand].translation - self.idle[fore].translation).length
+        elbow = palm - (rotation @ local_axis) * length
+        shoulder = pose[upper].translation
+        toward_elbow = elbow - shoulder
+        if toward_elbow.length < 1e-4:
+            toward_elbow = arm
+        # Keep the upper-arm length while following the authored shoulder line.
+        length = (self.idle[fore].translation - self.idle[upper].translation).length
+        shoulder = elbow - toward_elbow.normalized() * length
+        upper_axis = (self.bind[fore].translation - self.bind[upper].translation).normalized()
+        upper_skin = (pose[upper] @ self.bind[upper].inverted()).to_quaternion()
+        upper_rotation = align(upper_skin, upper_axis, (elbow - shoulder).normalized()) @ self.bind[upper].to_quaternion()
+        pose[fore] = transform(rotation, elbow)
+        pose[upper] = transform(upper_rotation, shoulder)
