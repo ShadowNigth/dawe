@@ -15,9 +15,12 @@ var next_cue := 0
 var action_key := ""
 var action_cues: Dictionary = {}
 var usp_sample := 0
+var source_audio: Dictionary
+var next_sample: Dictionary
 
 func _ready() -> void:
 	action_cues = Assets.read_json("weapon-sound-cues")
+	source_audio = Assets.read_json("archi-weapon-pack")
 	# Browser builds use Web Audio samples; Dummy/headless has no sample backend.
 	var playback := AudioServer.PLAYBACK_TYPE_STREAM
 	if OS.has_feature("web") and DisplayServer.get_name() != "headless":
@@ -71,7 +74,17 @@ func step(sand: bool) -> void:
 	step_index = step_index % 4 + 1
 	cue("step-%s-%d" % ["sand" if sand else "concrete", step_index], -14.0)
 
+func zoom_sound(zoomed: bool) -> void:
+	var zoom_cues: Dictionary = source_audio.get("zoom", {})
+	cue(zoom_cues.get("in" if zoomed else "out", "zoom"), -13.0)
+
 func shot_sample(id: String, with_silencer: bool) -> String:
+	var bank := "usp-s-open" if id == "usp-s" and not with_silencer else id
+	var choices: Array = source_audio.get("shots", {}).get(bank, [])
+	if not choices.is_empty():
+		var index: int = next_sample.get(bank, 0)
+		next_sample[bank] = (index + 1) % choices.size()
+		return String(choices[index])
 	if id == "usp-s" and not with_silencer:
 		usp_sample = usp_sample % 3 + 1
 		return "usp-unsuppressed-%02d" % usp_sample
@@ -80,7 +93,7 @@ func shot_sample(id: String, with_silencer: bool) -> String:
 func start_clip(id: String, clip: String, with_silencer: bool) -> void:
 	action_key = id + "/" + clip
 	pending = action_cues.get(action_key, [])
-	if clip == "shoot1":
+	if clip in ["shoot1", "shoot2", "shoot3"]:
 		var shot := shot_sample(id, with_silencer)
 		var level := -18.0 if id == "usp-s" and with_silencer else -9.0
 		if not shot.is_empty():

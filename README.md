@@ -1,6 +1,6 @@
 # Dawe — prototipo de shooter en Godot 4
 
-**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S, Glock-18, Desert Eagle, AK-47, M4A4, AWP y bayoneta. Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
+**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S, Glock-18, Desert Eagle, AK-47, M4A4, AWP y kukri del [pack Archi](docs/archi-weapons.md). Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
 
 ## Descargar el proyecto con los activos incluidos
 
@@ -19,19 +19,19 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | Shift / Ctrl / Espacio | Caminar / agacharse / saltar |
 | M | Abrir el selector de equipos con logos (CT/SAS o T/Phoenix); se abre también al iniciar |
 | B | Abrir o cerrar la tienda de práctica. Elegí una primaria y una secundaria |
-| 1 / 2 / 3 / rueda | Primaria / secundaria / bayoneta fija / recorrer armas disponibles |
+| 1 / 2 / 3 / rueda | Primaria / secundaria / kukri fijo / recorrer armas disponibles |
 | G / E | Soltar el arma equipada / recoger y equipar la más cercana al alcance |
 | V | Alternar entre primera y tercera persona |
-| Clic izquierdo / R / F | Disparo o tajo con la bayoneta / recarga / inspección (con bayoneta, F durante el desenfunde reproduce la variante) |
-| Clic derecho | Silenciador USP-S (también T) / mira AWP (dos aumentos) / estocada con bayoneta |
+| Clic izquierdo / R / F | Disparo o tajo con el kukri / recarga / inspección (la Deagle alterna las dos inspecciones de Archi) |
+| Clic derecho | Silenciador USP-S (también T) / mira AWP (dos aumentos) / estocada con el kukri |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
 
 ## Movimiento, escalones y audio
 
 - SAS y Phoenix muestran despegue, descenso y aterrizaje en tercera persona. Las poses se generan para las tres posturas de arma y no empujan el cuerpo físico.
 - El movimiento usa velocidades por arma, aceleración, fricción, salto y límite de dirección en el aire de referencia de CS2. WASD corre por defecto; Shift camina y Ctrl agacha. El salto no se repite al mantener Espacio. El prototipo conserva la cápsula y el ascenso de escalones de hasta 34 cm de Godot para el mapa; no replica subtick ni predicción online.
-- La USP-S usa el clip silenciado de origen con el silenciador puesto y tres muestras originales de CS:GO para el disparo sin silenciador. Desenfunde, recarga y silenciador usan las marcas de tiempo de los clips; los pasos de carrera van por distancia real y caminar/agacharse no emite pasos.
-- Los dedos de la mano derecha se ajustan a la forma de cada empuñadura antes del horneado. Los clips mantienen el agarre estabilizado durante el disparo.
+- Las seis armas usan el audio de Archi: disparos, desenfundes, recargas, correderas, cerrojo de AWP y rosca de USP-S, según las muestras que contiene el pack. El disparo de la USP-S cambia con el silenciador. Se conservan los sonidos anteriores del cuchillo y del ambiente: Archi no incluye los WAV del kukri.
+- Los modelos conservan las poses del pack de origen. Los guantes Sport Vice se ligan al rig de cada arma; las mangas y los dedos se ajustan para que no se separen durante los gestos.
 
 ## Instalar los activos locales
 
@@ -48,24 +48,11 @@ python3 tools/build_godot_assets.py --basisu /ruta/basisu
 
 Esto genera `godot/generated/` con la **malla de Dust II**, su **colisión independiente**, radar y navegación de referencia. El nivel arranca frente a **Puertas Largas**. También genera **SAS y Phoenix**, cada uno con la pose base y los **36 ciclos** disponibles. Si `godot/generated/` ya existe, el generador no lo pisa: conservá una copia y armá uno nuevo, o elegí otro destino con `--output`.
 
-Para sumar los modelos de primera persona, con **Blender 4.5+** (con Cycles habilitado):
-
-```sh
-for weapon in usp-s ak-47 bayonet m4a4 glock deagle awp; do
-  blender --background --python-exit-code 1 --python tools/build_godot_viewmodel.py -- \
-    --weapon "$weapon" --output "third_party_assets/${weapon}_bake"
-  python3 tools/port_godot_viewmodel.py --weapon "$weapon" \
-    --smd "third_party_assets/${weapon}_bake"
-done
-python3 tools/import_presentation.py        # logos y sonidos locales, incluye viento de síntesis
-python3 tools/build_weapon_drops.py         # mallas de suelo a partir de los GLB anteriores
-```
-
-Se hornea el material por capas del brazo Silverhand y el implante del MultiRig para Godot. Se conserva la geometría original de brazos y arma, hasta cuatro pesos por vértice y los mapas de color, rugosidad/metalizado y normales que trae cada modelo, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, **5 para AK-47, M4A4, Glock-18, Desert Eagle y AWP** (reposo, desenfunde, disparo, recarga e inspección) y **8 para la bayoneta** (dos reposos, desenfunde, dos tajos, estocada y dos inspecciones). Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
+Para reconstruir los modelos, animaciones, iconos y WAV de primera persona activos, seguí la [guía de conversión de Archi](docs/archi-weapons.md). No hacen falta Blender ni Source para ejecutar el ZIP ya preparado. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
 
 ## Vista texturizada de Puertas Largas
 
-La demo de Arena usa un recorte texturizado de Dust II sobre la colisión real. `B` abre la tienda de práctica (sin saldo ni restricciones de equipo), `1` selecciona la primaria, `2` la secundaria y `3` la bayoneta. `G` tira el arma de fuego; `E` recoge o intercambia por la que encuentre cerca. La bayoneta siempre queda en su ranura. El ZIP de escritorio incluye modelos GLB y las mallas de suelo `.vis`; el recorte web se genera aparte. El archivo automático de fuentes de GitHub es distinto.
+La demo de Arena usa un recorte texturizado de Dust II sobre la colisión real. `B` abre la tienda de práctica (sin saldo ni restricciones de equipo), `1` selecciona la primaria, `2` la secundaria y `3` el kukri. `G` tira el arma de fuego; `E` recoge o intercambia por la que encuentre cerca. El kukri siempre queda en su ranura. El ZIP de escritorio incluye modelos GLB y las mallas de suelo `.vis`; el recorte web se genera aparte. El archivo automático de fuentes de GitHub es distinto.
 
 Para reproducir el recorte, después de generar `dust2.glb`, los agentes y las armas:
 
@@ -74,7 +61,7 @@ python3 tools/build_godot_preview.py
 godot --path godot -- --visual-preview
 ```
 
-El generador crea paquetes `.vis` en `godot/generated/`, que el juego también puede leer sin importar los GLB en el editor. Conservan la malla, las texturas, los esqueletos y los clips de esta demo, incluidos los mapas de normales, metalizado, rugosidad y oclusión de las armas. Fuera del recorte texturizado, el mapa sigue en modo de diagnóstico; el arranque habitual usa el Dust II visual completo cuando su GLB ya fue importado.
+El generador crea paquetes `.vis` en `godot/generated/`, que el juego también puede leer sin importar los GLB en el editor. Conservan la malla, las texturas, los esqueletos y los clips de esta demo, incluidos los mapas de normales disponibles y los parámetros de metalizado y rugosidad de las armas. Fuera del recorte texturizado, el mapa sigue en modo de diagnóstico; el arranque habitual usa el Dust II visual completo cuando su GLB ya fue importado.
 
 ## Recorrer Puertas Largas con la colisión real
 
@@ -104,7 +91,7 @@ godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo, velocidad por arma, contra-strafe y que el salto requiere contacto con el suelo. También verifica cinco escalones, un salto a una repisa de 94 cm y que la cámara se retraiga al rozar una esquina. La prueba de Dust II recorre además la escalera real de Corta en ambas direcciones. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y el agarre de ambas manos durante el retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. También verifica los logos y el bloqueo del menú, las ranuras 1/2/3, las muestras de disparo de la USP-S, la mira y el cerrojo de AWP, las marcas de recarga y el ciclo de tirar y recuperar la USP-S con su estado de silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
+La prueba de la pista comprueba paredes, rampas, agachado con transición de cámara, salto, frenado, control aéreo, velocidad por arma, contra-strafe y que el salto requiere contacto con el suelo. También verifica cinco escalones, un salto a una repisa de 94 cm y que la cámara se retraiga al rozar una esquina. La prueba de Dust II recorre además la escalera real de Corta en ambas direcciones. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos durante recarga y retroceso, la rueda para cambiar de arma y la visibilidad del silenciador antes y después de sus eventos. También verifica los logos y el bloqueo del menú, las ranuras 1/2/3, las muestras de disparo de la USP-S, la mira y el cerrojo de AWP, las marcas de recarga y el ciclo de tirar y recuperar la USP-S con su estado de silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 

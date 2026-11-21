@@ -76,7 +76,18 @@ func weapons(sw: Node) -> void:
 			continue
 		check(has_texture(sw.viewmodel.model), "%s has textures on its first-person model" % id)
 		check(pose_changes(sw.viewmodel.model, player, "reload"), "%s reload moves the rig" % id)
-		check(recoil_keeps_grip(sw.viewmodel.model, player, id == "awp"), "%s wrists follow recoil without twisting off the grip" % id)
+		if sw.soundscape.source_audio.is_empty():
+			check(recoil_keeps_grip(sw.viewmodel.model, player, id == "awp"), "%s wrists follow recoil without twisting off the grip" % id)
+		else:
+			check(sw.viewmodel.model.find_child("ArchiGloves", true, false) is MeshInstance3D, "%s loads the pack's glove mesh" % id)
+			check(pose_changes(sw.viewmodel.model, player, "shoot1"), "%s uses animated source recoil" % id)
+			for clip: String in sw.soundscape.source_audio.source_sequences[id]:
+				check(player.has_animation(clip), "%s imports Source sequence %s" % [id, clip])
+			if id == "deagle":
+				sw.viewmodel.play("idle", true)
+				check(sw.viewmodel.inspect() and sw.viewmodel.active_clip == "lookat01", "Deagle first Archi inspection")
+				player.advance(10.0)
+				check(sw.viewmodel.inspect() and sw.viewmodel.active_clip == "lookat02", "Deagle second Archi inspection")
 		for clip in ["idle", "draw", "shoot1", "reload", "lookat01"]:
 			check(player.has_animation(clip), "%s %s" % [id, clip])
 		if id == "usp-s":
@@ -160,11 +171,15 @@ func bayonet_actions(sw: Node) -> void:
 		return
 	for clip in ["draw", "idle1", "idle2", "light_miss1", "light_miss2", "heavy_miss1", "lookat01", "lookat01_draw"]:
 		check(vm.animation_player.has_animation(clip), "bayonet " + clip)
-	check(has_texture(vm.model), "bayonet has textured materials")
+	check(has_texture(vm.model), "knife has textured materials")
+	if not sw.soundscape.source_audio.is_empty():
+		check(vm.model.find_child("ArchiGloves", true, false) is MeshInstance3D, "kukri uses the pack's gloves")
+		for clip: String in sw.soundscape.source_audio.source_sequences.bayonet:
+			check(vm.animation_player.has_animation(clip), "kukri imports Source sequence " + clip)
 	check(vm.inspect() and vm.active_clip == "lookat01_draw", "inspect during draw plays its authored variant")
 	vm.animation_player.advance(8.0)
 	check(vm.active_clip == "idle1", "draw inspection returns to idle")
-	vm.animation_player.advance(2.1)
+	vm.animation_player.advance(vm.animation_player.current_animation_length + 0.01)
 	check(vm.active_clip == "idle2", "both idle variants play in sequence")
 	check(vm.primary_action() and vm.active_clip == "light_miss1", "bayonet first light clip")
 	check(not vm.primary_action(), "light clip cannot be restarted during its action")
@@ -208,13 +223,17 @@ func pose_changes(model: Node, player: AnimationPlayer, clip: String) -> bool:
 		return false
 	player.play(clip, 0.0)
 	player.seek(0.0, true)
-	var initial: Array[Quaternion] = []
+	var initial: Array[Transform3D] = []
 	for i in rig.get_bone_count():
-		initial.append(rig.get_bone_pose_rotation(i))
-	player.seek(player.get_animation(clip).length * 0.47, true)
-	for i in rig.get_bone_count():
-		if absf(initial[i].dot(rig.get_bone_pose_rotation(i))) < 0.999:
-			return true
+		initial.append(rig.get_bone_pose(i))
+	for phase in [0.08, 0.22, 0.47]:
+		player.seek(player.get_animation(clip).length * phase, true)
+		for i in rig.get_bone_count():
+			var current := rig.get_bone_pose(i)
+			if current.origin.distance_to(initial[i].origin) > 0.002:
+				return true
+			if absf(initial[i].basis.get_rotation_quaternion().dot(current.basis.get_rotation_quaternion())) < 0.999:
+				return true
 	return false
 
 func recoil_keeps_grip(model: Node, player: AnimationPlayer, bolt_cycle := false) -> bool:
@@ -483,7 +502,8 @@ func presentation(sw: Node) -> void:
 	check(vm.weapon_id == before, "buy modal blocks weapon hotkeys")
 	for id in ["awp", "m4a4", "ak-47", "usp-s", "glock", "deagle"]:
 		check(sw.buy_menu.cards[id].icon != null, "shop icon " + id)
-	var shot_assets := {"m4a4": "m4a1-1", "glock": "glock18-1", "deagle": "deagle-1", "awp": "awp1", "usp-s": "usp1"}
+	var from_archi: bool = not sw.soundscape.source_audio.is_empty()
+	var shot_assets := {"m4a4": "m4a1_unsil-1" if from_archi else "m4a1-1", "glock": "glock18-1", "deagle": "deagle-1", "awp": "awp1", "usp-s": "usp1"}
 	for id in shot_assets:
 		sw.buy_menu.bought.emit(id)
 		check(vm.weapon_id == id and sw.loadout.size() == 3 and sw.loadout[2] == "bayonet", "buy replaces same slot with " + id)
@@ -512,15 +532,15 @@ func presentation(sw: Node) -> void:
 	check(vm.weapon_id == "usp-s", "2 equips the purchased secondary")
 	vm.animation_player.advance(2.0)
 	vm.primary_action()
-	check(sw.soundscape.pending[0][1] == "usp1", "attached USP-S uses the native silenced shot")
+	check(sw.soundscape.pending[0][1] == ("usp2" if from_archi else "usp1"), "attached USP-S uses the native silenced shot")
 	vm.animation_player.advance(2.0)
 	vm.toggle_silencer()
 	vm.animation_player.advance(6.0)
 	vm.primary_action()
-	check(sw.soundscape.pending[0][1] == "usp-unsuppressed-01", "detached USP-S uses an original open shot")
+	check(sw.soundscape.pending[0][1] == ("usp_unsil-1" if from_archi else "usp-unsuppressed-01"), "detached USP-S uses an original open shot")
 	vm.animation_player.advance(2.0)
 	vm.primary_action()
-	check(sw.soundscape.pending[0][1] == "usp-unsuppressed-02", "detached USP-S cycles verified original variants")
+	check(sw.soundscape.pending[0][1] == ("usp_unsil-1" if from_archi else "usp-unsuppressed-02"), "detached USP-S uses the selected pack's open shot")
 	var sand := Color("bda17e")
 	sw.world.block(Vector3(120, -0.3, 120), Vector3(12, 0.6, 12), sand)
 	sw.actor.global_position = Vector3(120, 0.05, 120)

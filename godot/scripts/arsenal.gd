@@ -4,7 +4,7 @@ const PRIMARY := ["ak-47", "m4a4", "awp"]
 const SECONDARY := ["usp-s", "glock", "deagle"]
 const KNIFE := "bayonet"
 const LABELS := {"ak-47": "AK-47", "m4a4": "M4A4", "awp": "AWP", "usp-s": "USP-S",
-	"glock": "Glock-18", "deagle": "Desert Eagle", "bayonet": "Bayoneta"}
+	"glock": "Glock-18", "deagle": "Desert Eagle", "bayonet": "Kukri"}
 
 static func slot(id: String) -> int:
 	if id in PRIMARY:

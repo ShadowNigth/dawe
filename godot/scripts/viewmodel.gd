@@ -8,6 +8,8 @@ const Actor = preload("res://scripts/actor.gd")
 
 var weapon_id := "usp-s"
 var next_light := "light_miss1"
+var next_shot := 1
+var next_inspection := "lookat01"
 var model: Node3D
 var animation_player: AnimationPlayer
 var silencer: Node3D
@@ -63,6 +65,8 @@ func resize() -> void:
 func select(id: String, draw := true) -> void:
 	weapon_id = id
 	next_light = "light_miss1"
+	next_shot = 1
+	next_inspection = "lookat01"
 	if model != null:
 		viewport_3d.remove_child(model)
 		model.queue_free()
@@ -88,7 +92,11 @@ func is_idle(clip: String) -> bool:
 
 func primary_action() -> bool:
 	if weapon_id != "bayonet":
-		return play("shoot1")
+		var clip := "shoot%d" % next_shot
+		if not play(clip):
+			return false
+		next_shot = next_shot + 1 if animation_player.has_animation("shoot%d" % (next_shot + 1)) else 1
+		return true
 	if not play(next_light):
 		return false
 	next_light = "light_miss2" if next_light == "light_miss1" else "light_miss1"
@@ -97,7 +105,10 @@ func primary_action() -> bool:
 func inspect() -> bool:
 	if weapon_id == "bayonet" and active_clip == "draw":
 		return play("lookat01_draw", true)
-	return play("lookat01")
+	if not play(next_inspection):
+		return false
+	next_inspection = "lookat02" if next_inspection == "lookat01" and animation_player.has_animation("lookat02") else "lookat01"
+	return true
 
 func play(clip: String, force := false) -> bool:
 	if animation_player == null or not animation_player.has_animation(clip):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify local Godot asset packs: GLB accessors, clip sets, and Outside Long floor."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -190,21 +191,64 @@ def verify_wrist_and_grip_limits(doc, model, weapon):
     print(f"  Inspección: muñeca derecha {worst['Right']:.1f}°, izquierda {worst['Left']:.1f}°; largo de brazo constante y agarre anclado")
 
 
+def verify_archi(doc, model, name, manifest):
+    assert doc['extras']['source'] == manifest['repository']
+    assert {'ArmsAndWeapon', 'ArchiGloves', 'ArchiSleeves'} <= {m['name'] for m in doc['meshes']}
+    assert set(manifest['source_sequences'][name]) <= {a['name'] for a in doc['animations']}
+    skeleton = {node['name'] for node in doc['nodes']}
+    maximum = 0.0
+    for animation in doc['animations']:
+        poses = animation_poses(doc, model, animation)
+        for side in ('L', 'R'):
+            fore, hand = (f'v_weapon.Bip01_{side}_{joint}' for joint in ('Forearm', 'Hand'))
+            assert {fore, hand} <= skeleton
+            wrist = np.linalg.inv(poses[fore]) @ poses[hand]
+            length = np.linalg.norm(wrist[:, :3, 3], axis=1)
+            assert np.allclose(length, .262, atol=.002), (name, animation['name'], side, 'forearm length')
+            if len(wrist) > 1:
+                angle = float(angular_distance(wrist[1:], wrist[:-1]).max())
+                maximum = max(angle, maximum)
+                # The kukri has rapid, authored flips and hit/miss variants.
+                limit = 100.0 if name == 'bayonet' else 48.0
+                assert angle < limit, (name, animation['name'], side, 'discontinuous wrist', angle)
+    for mesh in doc['meshes']:
+        for surface in mesh['primitives']:
+            weights = model.accessor(surface['attributes']['WEIGHTS_0'])
+            assert np.allclose(weights.sum(axis=1), 1.0, atol=1e-5)
+    if name in ('glock', 'usp-s'):
+        shoot = next(clip for clip in doc['animations'] if clip['name'] == 'shoot1')
+        slide, = [c for c in shoot['channels'] if c['target']['path'] == 'translation'
+                  and doc['nodes'][c['target']['node']]['name'].endswith('_slide')]
+        assert np.max(np.ptp(model.accessor(shoot['samplers'][slide['sampler']]['output']), axis=0)) > .015
+    print(f'  Archi: mallas y rig del pack; giro máximo por fotograma {maximum:.1f}°')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--quality-viewmodels', action='store_true', help='exige las armas mejoradas con PBR y pesos múltiples')
     parser.add_argument('--assets', type=Path, default=ROOT / 'godot/generated')
     args = parser.parse_args()
+    archi_file = args.assets / 'archi-weapon-pack.json'
+    archi_pack = json.loads(archi_file.read_text()) if archi_file.exists() else None
+    if archi_pack:
+        for name, spec in archi_pack['samples'].items():
+            assert hashlib.sha256((args.assets/'audio'/f'{name}.wav').read_bytes()).hexdigest() == spec['sha256'], name
     for name, clips in {**GODOT_WEAPON_CLIPS, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
         doc, glb = read(args.assets / f'{name}.glb')
-        assert {a['name'] for a in doc['animations']} == set(clips), name
+        imported = {a['name'] for a in doc['animations']}
+        archi_weapon = archi_pack is not None and name in GODOT_WEAPON_CLIPS
+        assert (set(clips) <= imported if archi_weapon else set(clips) == imported), name
         for clip in doc['animations']:
             assert clip['channels'] and clip['samplers']
             for sampler in clip['samplers']:
                 t = glb.accessor(sampler['input']).ravel()
                 assert t[0] == 0 and (np.diff(t) > 0).all()
                 assert len(t) == len(glb.accessor(sampler['output']))
-        print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
+        print(f'{name}: {len(imported)} clips y {len(doc["skins"])} skin(s)')
+        if archi_weapon:
+            if args.quality_viewmodels:
+                verify_archi(doc, glb, name, archi_pack)
+            continue
         if args.quality_viewmodels and name in GODOT_WEAPON_CLIPS:
             verify_quality(doc, glb, bayonet=name == 'bayonet')
             verify_wrist_and_grip_limits(doc, glb, name)

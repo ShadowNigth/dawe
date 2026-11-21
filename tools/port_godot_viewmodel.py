@@ -27,7 +27,7 @@ def euler(x, y, z):
 
 
 def read_smd(path):
-    lines = iter(path.read_text().splitlines())
+    lines = (line.strip() for line in path.read_text().splitlines() if line.strip())
     if next(lines) != 'version 1' or next(lines) != 'nodes':
         raise ValueError(f'Formato SMD inesperado: {path}')
     bones = []

@@ -173,7 +173,7 @@ func drop_weapon() -> void:
 	var id := viewmodel.weapon_id
 	var slot := Arsenal.slot(id)
 	if slot == 2:
-		feedback = "La bayoneta siempre queda en la ranura 3."
+		feedback = "El cuchillo siempre queda en la ranura 3."
 		return
 	if slot < 0 or not loadout.has(id):
 		return
@@ -293,7 +293,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("silencer"):
 		if viewmodel.weapon_id == "awp" and event is InputEventMouseButton and viewmodel.is_idle(viewmodel.active_clip):
 			set_zoom((zoom + 1) % 3)
-			soundscape.cue("zoom", -13.0)
+			soundscape.zoom_sound(zoom > 0)
 		elif viewmodel.weapon_id == "bayonet" and event is InputEventMouseButton:
 			viewmodel.play("heavy_miss1")
 		elif viewmodel.toggle_silencer():
@@ -404,7 +404,7 @@ func refresh_hud() -> void:
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), weapon_label, camera_mode]
 	hint.text = "WASD mover  ·  Shift caminar  ·  Ctrl agachar  ·  Espacio saltar\nB compra  ·  1 primaria / 2 secundaria / 3 cuchillo  ·  Rueda cambia\nM equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
 	if viewmodel.weapon_id == "bayonet":
-		hint.text += "\nBayoneta · Clic izquierdo tajo · Clic derecho estocada"
+		hint.text += "\nKukri · Clic izquierdo tajo · Clic derecho estocada"
 	elif viewmodel.weapon_id == "awp":
 		hint.text += "\nR recarga · Clic derecho mira (2 aumentos)"
 	elif viewmodel.silencer != null:
