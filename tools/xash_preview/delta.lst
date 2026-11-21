@@ -1,0 +1,38 @@
+// Only fields exchanged by the local static preview.
+clientdata_t none
+{
+    DEFINE_DELTA(origin[0], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(origin[1], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(origin[2], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(view_ofs[2], DT_FLOAT | DT_SIGNED, 12, 8),
+    DEFINE_DELTA(viewmodel, DT_INTEGER, 12, 1),
+    DEFINE_DELTA(health, DT_FLOAT | DT_SIGNED, 12, 1),
+    DEFINE_DELTA(fov, DT_FLOAT, 8, 1)
+}
+entity_state_t none
+{
+    DEFINE_DELTA(modelindex, DT_INTEGER, 12, 1)
+}
+entity_state_player_t none
+{
+    DEFINE_DELTA(origin[0], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(origin[1], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(origin[2], DT_FLOAT | DT_SIGNED, 16, 8),
+    DEFINE_DELTA(modelindex, DT_INTEGER, 12, 1)
+}
+custom_entity_state_t none
+{
+    DEFINE_DELTA(modelindex, DT_INTEGER, 12, 1)
+}
+usercmd_t none
+{
+    DEFINE_DELTA(msec, DT_BYTE, 8, 1)
+}
+weapon_data_t none
+{
+    DEFINE_DELTA(m_iId, DT_INTEGER, 8, 1)
+}
+event_t none
+{
+    DEFINE_DELTA(entindex, DT_INTEGER, 12, 1)
+}

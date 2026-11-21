@@ -1,0 +1,8 @@
+# Recursos de terceros descargados para pruebas locales.
+/third_party_assets/
+__pycache__/
+/tools/agent_assets/node_modules/
+
+/godot/.godot/
+/godot/generated/
+/godot/.godot-assets-*/
