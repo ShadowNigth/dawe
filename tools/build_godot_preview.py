@@ -74,22 +74,28 @@ def bake(source, output, name):
         value = doc['materials'][i]
         pbr = value.get('pbrMetallicRoughness', {})
         tex = pbr.get('baseColorTexture')
-        img = -1
+        def image_for(slot):
+            if not slot:
+                return -1
+            image = doc['textures'][slot['index']]['source']
+            if image not in image_ids:
+                image_ids[image] = len(pack.info['textures'])
+                pack.info['textures'].append(pack.put(bytes(glb.view(doc['images'][image]['bufferView']))))
+            return image_ids[image]
+
         repeat = True
         if tex:
             texture = doc['textures'][tex['index']]
-            img = texture['source']
-            if img not in image_ids:
-                image_ids[img] = len(pack.info['textures'])
-                pack.info['textures'].append(pack.put(bytes(glb.view(doc['images'][img]['bufferView']))))
             repeat = doc.get('samplers', [{}])[texture.get('sampler', 0)].get('wrapS', 10497) != 33071
-            img = image_ids[img]
         idx = len(pack.info['materials'])
         material_ids[i] = idx
-        pack.info['materials'].append(dict(texture=img, alpha=value.get('alphaMode', 'OPAQUE'),
-                                           cutoff=value.get('alphaCutoff', .5), repeat=repeat,
-                                           two_sided=value.get('doubleSided', False),
-                                           color=pbr.get('baseColorFactor', [1]*4)))
+        info = dict(texture=image_for(tex), alpha=value.get('alphaMode', 'OPAQUE'),
+                    cutoff=value.get('alphaCutoff', .5), repeat=repeat,
+                    two_sided=value.get('doubleSided', False), color=pbr.get('baseColorFactor', [1]*4))
+        if name in ('usp-s', 'ak-47'):
+            info.update(normal=image_for(value.get('normalTexture')), orm=image_for(pbr.get('metallicRoughnessTexture')),
+                        metallic=pbr.get('metallicFactor', 0), roughness=pbr.get('roughnessFactor', .82))
+        pack.info['materials'].append(info)
         return idx
 
     def visit(i, ancestor):
@@ -124,6 +130,8 @@ def bake(source, output, name):
                 uv = uv_map(glb.accessor(uv_id)[selected], uv_spec) if uv_id is not None else np.zeros((len(selected), 2))
                 surface = dict(mat=material(prim['material']), pos=pack.put(pos[selected]),
                                normals=pack.put(normal), uv=pack.put(uv), idx=pack.put(indices, '<i4'))
+                if name in ('usp-s', 'ak-47') and 'TANGENT' in attrs:
+                    surface['tangent'] = pack.put(glb.accessor(attrs['TANGENT'])[selected])
                 if mesh['skin'] >= 0:
                     if 'JOINTS_1' in attrs:
                         raise ValueError('La previsualización admite cuatro influencias por vértice')

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Convert the baked MultiRig SMD sources (not MDL) to skinned Godot GLBs."""
+"""Convert the MultiRig bake to Godot GLBs, preserving smooth skins and PBR."""
 import argparse
 from collections import defaultdict
 import io
+import json
 from pathlib import Path
 import re
 import shlex
@@ -50,20 +51,61 @@ def read_smd(path):
         for material in iter(lambda: next(lines), 'end'):
             for _ in range(3):
                 bone, *values = next(lines).split()
-                geometry[material].append((int(bone), [float(s) for s in values]))
+                geom = tuple(map(float, values[:8]))
+                if len(values) > 8:
+                    count = int(values[8])
+                    links = tuple((int(i), float(w)) for i, w in zip(values[9::2], values[10::2]))
+                    if not 1 <= count == len(links) <= 4 or len(values) != 9 + 2*count:
+                        raise ValueError(f'Pesos SMD inválidos: {path}')
+                else:
+                    links = ((int(bone), 1.0),)
+                geometry[material].append((links, geom))
     return bones, frames, geometry
+
+
+def tangent_frame(pos, uv, normals, indices):
+    """Accumulate UV tangents across matching indexed corners, including sign."""
+    tri = np.asarray(indices).reshape(-1, 3)
+    e1, e2 = pos[tri[:, 1]] - pos[tri[:, 0]], pos[tri[:, 2]] - pos[tri[:, 0]]
+    uv1, uv2 = uv[tri[:, 1]] - uv[tri[:, 0]], uv[tri[:, 2]] - uv[tri[:, 0]]
+    det = uv1[:, 0]*uv2[:, 1] - uv1[:, 1]*uv2[:, 0]
+    inv = np.divide(1, det, out=np.zeros_like(det), where=np.abs(det) > 1e-12)[:, None]
+    t = (e1*uv2[:, 1, None] - e2*uv1[:, 1, None]) * inv
+    b = (e2*uv1[:, 0, None] - e1*uv2[:, 0, None]) * inv
+    tangent, bitangent = np.zeros_like(normals), np.zeros_like(normals)
+    for idxs in tri.T:
+        np.add.at(tangent, idxs, t)
+        np.add.at(bitangent, idxs, b)
+    tangent -= normals * np.sum(normals*tangent, axis=1, keepdims=True)
+    norm = np.linalg.norm(tangent, axis=1, keepdims=True)
+    axis = np.eye(3)[np.argmin(np.abs(normals), axis=1)]
+    tangent = np.where(norm > 1e-10, tangent, np.cross(axis, normals))
+    tangent /= np.maximum(1e-12, np.linalg.norm(tangent, axis=1, keepdims=True))
+    sign = np.where(np.sum(np.cross(normals, tangent)*bitangent, axis=1) < 0, -1, 1)
+    return np.column_stack((tangent, sign))
 
 
 def build(folder, weapon, output):
     names, frames, _ = read_smd(folder / 'idle.smd')
-    bind = frames[0]
+    initial = frames[0]
+    bind_path = folder / 'skin_bind.smd'
+    if bind_path.exists():
+        bind_names, bind_frames, _ = read_smd(bind_path)
+        if names != bind_names:
+            raise ValueError('Esqueleto de referencia incompatible')
+        bind = bind_frames[0]
+    else:
+        bind = initial
+    mat_path = folder / 'materials.json'
+    mat_specs = json.loads(mat_path.read_text()) if mat_path.exists() else {}
     nodes, global_rest = [], []
     doc = dict(asset=dict(version='2.0', generator='Dawe viewmodel bridge'), scene=0,
                scenes=[dict(nodes=[0])], nodes=nodes, meshes=[], materials=[], textures=[], images=[])
     writer = Writer(doc)
     for i, (name, parent) in enumerate(names):
         p, r = bind[i]
-        nodes.append(dict(name=name, translation=p.tolist(), rotation=quaternion(r).tolist()))
+        ip, ir = initial[i]
+        nodes.append(dict(name=name, translation=ip.tolist(), rotation=quaternion(ir).tolist()))
         local = np.eye(4)
         local[:3, :3], local[:3, 3] = r, p
         if parent >= 0:
@@ -74,10 +116,22 @@ def build(folder, weapon, output):
     doc['skins'] = [dict(joints=list(range(len(names))), skeleton=0,
                          inverseBindMatrices=writer.accessor(inv, 'MAT4'))]
     materials = {}
+    textures = {}
+
+    def texture(file):
+        if file not in textures:
+            png = io.BytesIO()
+            with Image.open(folder / file) as img:
+                img.convert('RGB').save(png, 'PNG')
+            texture_id = len(doc['textures'])
+            textures[file] = texture_id
+            doc['images'].append(dict(bufferView=writer.view(png.getvalue()), mimeType='image/png'))
+            doc['textures'].append(dict(source=texture_id))
+        return dict(index=textures[file])
     by_piece = defaultdict(lambda: defaultdict(list))
     clips = set(WEAPON_CLIPS[weapon])
     for path in sorted(folder.glob('*.smd')):
-        if path.stem in clips:
+        if path.stem in clips or path == bind_path:
             continue
         mesh_names, mesh_bind, geometry = read_smd(path)
         if names != mesh_names or any(not np.allclose(p1, p2) or not np.allclose(r1, r2)
@@ -88,32 +142,49 @@ def build(folder, weapon, output):
             by_piece[piece][tex].extend(vertices)
     for piece, groups in by_piece.items():
         surfaces = []
-        for texture, vertices in groups.items():
-            if texture not in materials:
+        for texture_file, vertices in groups.items():
+            if texture_file not in materials:
                 mat = len(materials)
-                materials[texture] = mat
-                png = io.BytesIO()
-                with Image.open(folder / texture) as img:
-                    img.convert('RGB').save(png, 'PNG')
-                doc['images'].append(dict(bufferView=writer.view(png.getvalue()), mimeType='image/png'))
-                doc['textures'].append(dict(source=mat))
-                doc['materials'].append(dict(name=Path(texture).stem, pbrMetallicRoughness=dict(
-                    baseColorTexture=dict(index=mat), metallicFactor=0, roughnessFactor=.85)))
+                materials[texture_file] = mat
+                spec = mat_specs.get(texture_file, {})
+                pbr = dict(baseColorTexture=texture(texture_file), metallicFactor=spec.get('metallic', 0),
+                           roughnessFactor=spec.get('roughness', .85))
+                mat_info = dict(name=Path(texture_file).stem, pbrMetallicRoughness=pbr)
+                if spec.get('orm'):
+                    pbr['metallicRoughnessTexture'] = texture(spec['orm'])
+                    mat_info['occlusionTexture'] = texture(spec['orm'])
+                if spec.get('normal'):
+                    mat_info['normalTexture'] = texture(spec['normal'])
+                doc['materials'].append(mat_info)
+            # Keep indexed vertices; don't collapse UV, normal or weight seams.
+            unique = {}
+            indexes = []
+            for vertex in vertices:
+                indexes.append(unique.setdefault(vertex, len(unique)))
+            vertices = list(unique)
             joints = np.zeros((len(vertices), 4), dtype=np.uint16)
-            joints[:, 0] = [item[0] for item in vertices]
             weights = np.zeros((len(vertices), 4), dtype=np.float32)
-            weights[:, 0] = 1
+            for i, (links, _) in enumerate(vertices):
+                for k, (bone, weight) in enumerate(links):
+                    if not 0 <= bone < len(names) or not 0 < weight <= 1:
+                        raise ValueError(f'Influencia inválida del hueso {bone}')
+                    joints[i, k], weights[i, k] = bone, weight
+            weights /= weights.sum(axis=1, keepdims=True)
             data = np.array([item[1] for item in vertices])
             normals = data[:, 3:6] @ Y_UP.T
             normals /= np.maximum(1e-8, np.linalg.norm(normals, axis=1, keepdims=True))
             uv = data[:, 6:8].copy()
             uv[:, 1] = 1-uv[:, 1]
-            attr = dict(POSITION=writer.accessor(data[:, :3] @ Y_UP.T * .0254, 'VEC3', bounds=True, target=34962),
+            positions = data[:, :3] @ Y_UP.T * .0254
+            attr = dict(POSITION=writer.accessor(positions, 'VEC3', bounds=True, target=34962),
                         NORMAL=writer.accessor(normals, 'VEC3', target=34962),
                         TEXCOORD_0=writer.accessor(uv, 'VEC2', target=34962),
                         JOINTS_0=writer.accessor(joints, 'VEC4', 5123, target=34962),
                         WEIGHTS_0=writer.accessor(weights, 'VEC4', target=34962))
-            surfaces.append(dict(attributes=attr, material=materials[texture]))
+            if mat_specs.get(texture_file, {}).get('normal'):
+                attr['TANGENT'] = writer.accessor(tangent_frame(positions, uv, normals, indexes), 'VEC4', target=34962)
+            surfaces.append(dict(attributes=attr, material=materials[texture_file],
+                                 indices=writer.accessor(indexes, 'SCALAR', 5125, target=34963)))
         doc['scenes'][0]['nodes'].append(len(nodes))
         nodes.append(dict(name=piece, mesh=len(doc['meshes']), skin=0))
         doc['meshes'].append(dict(name=piece, primitives=surfaces))
@@ -126,16 +197,22 @@ def build(folder, weapon, output):
             raise ValueError(f'Clip incompatible: {clip}')
         animation(writer, clip, list(range(len(names))), frames)
     if weapon == 'usp-s':
-        qc = (folder / 'usp.qc').read_text()
-        for name in ('silencer_attach', 'silencer_detach'):
-            block = re.search(rf'\$sequence "{name}"[^{{]+{{([^}}]+)}}', qc)[1]
-            events[name] = [(int(i) / 30, v == '0') for i, v in re.findall(r'event 5001 (\d+) "([01])"', block)]
-            if len(events[name]) != 2:
-                raise ValueError(f'Faltan los eventos del silenciador: {name}')
+        event_path = folder / 'silencer-events.json'
+        if event_path.exists():
+            events = json.loads(event_path.read_text())
+        else:
+            qc = (folder / 'usp.qc').read_text()
+            for name in ('silencer_attach', 'silencer_detach'):
+                block = re.search(rf'\$sequence "{name}"[^{{]+{{([^}}]+)}}', qc)[1]
+                events[name] = [(int(i) / 30, v == '0') for i, v in re.findall(r'event 5001 (\d+) "([01])"', block)]
+        for clip, initial_visible in (('silencer_attach', False), ('silencer_detach', True)):
+            sequence = events.get(clip, [])
+            if (len(sequence) != 2 or sequence[0][0] != 0 or sequence[1][0] <= 0
+                    or sequence[0][1] != initial_visible or sequence[1][1] == initial_visible):
+                raise ValueError(f'Eventos inesperados del silenciador: {clip}')
     # Use a boolean custom track in gameplay; preserve event timing in the sidecar.
     writer.save(output)
     if events:
-        import json
         output.with_suffix('.json').write_text(json.dumps(events, indent=2) + '\n')
     print(f'{output.name}: {len(names)} huesos, {len(clips)} animaciones, {len(by_piece)} piezas')
 

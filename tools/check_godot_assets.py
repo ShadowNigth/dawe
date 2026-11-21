@@ -70,8 +70,27 @@ def floor_height(meshes, position):
     return y
 
 
+def verify_quality(doc, model):
+    assert len(doc['skins'][0]['joints']) > 90
+    skinned_hands = 0
+    original_tris = 0
+    for mesh in doc['meshes']:
+        for surf in mesh['primitives']:
+            original_tris += len(model.accessor(surf['indices'])) // 3
+            weights = model.accessor(surf['attributes']['WEIGHTS_0'])
+            assert np.allclose(weights.sum(axis=1), 1.0, atol=1e-5)
+            mat = doc['materials'][surf['material']]
+            if mat['name'] == 'skin':
+                skinned_hands += np.count_nonzero((weights > 0.00001).sum(axis=1) > 1)
+            else:
+                assert 'normalTexture' in mat and 'occlusionTexture' in mat
+                assert 'metallicRoughnessTexture' in mat['pbrMetallicRoughness'] and 'TANGENT' in surf['attributes']
+    assert skinned_hands > 1000 and original_tris > 25000
+    print(f'  {original_tris:,} triángulos y {skinned_hands:,} vértices de brazo con múltiples pesos')
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--quality-viewmodels', action='store_true', help='exige las armas mejoradas con PBR y pesos múltiples')
     parser.add_argument('--assets', type=Path, default=ROOT / 'godot/generated')
     args = parser.parse_args()
     for name, clips in {**WEAPON_CLIPS, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
@@ -84,6 +103,8 @@ def main():
                 assert t[0] == 0 and (np.diff(t) > 0).all()
                 assert len(t) == len(glb.accessor(sampler['output']))
         print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
+        if args.quality_viewmodels and name in WEAPON_CLIPS:
+            verify_quality(doc, glb)
     doc, _ = read(args.assets / 'dust2.glb')
     assert sum(len(m['primitives']) for m in doc['meshes']) == 691
     assert len(doc['images']) == 564

@@ -28,6 +28,7 @@ func _ready() -> void:
 	add_child(actor)
 	viewmodel.layer = 1
 	add_child(viewmodel)
+	viewmodel.silencer_changed.connect(refresh_hud)
 	build_hud()
 	if DisplayServer.get_name() != "headless" and not OS.has_feature("web"):
 		capture_mouse()
@@ -81,8 +82,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		viewmodel.play("lookat01")
 	if event.is_action_pressed("reload"):
 		viewmodel.play("reload")
-	if event.is_action_pressed("silencer"):
-		viewmodel.toggle_silencer()
+	if event.is_action_pressed("silencer") and viewmodel.toggle_silencer():
+		actor.third_person = false
 	if event.is_action_pressed("reset"):
 		reset()
 	if event.is_action_pressed("radar") and radar.texture != null:
@@ -167,7 +168,9 @@ func refresh_hud() -> void:
 		area = "DUST II · Puertas Largas"
 	var camera_mode := "3.ª persona" if actor.third_person else "1.ª persona"
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), viewmodel.weapon_id.to_upper(), camera_mode]
-	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2 agente  ·  3/4 arma  ·  V cámara  ·  R recarga  ·  F inspección  ·  T silenciador  ·  Tab radar"
+	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2 agente  ·  3/4 arma  ·  V cámara  ·  R recarga  ·  F inspección  ·  Tab radar"
+	if viewmodel.silencer != null:
+		hint.text += "\n" + viewmodel.silencer_hint()
 	if not actor.third_person and viewmodel.model == null:
 		hint.text += "\nModelo de primera persona sin importar."
 	viewmodel.visible = not actor.third_person

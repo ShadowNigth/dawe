@@ -69,15 +69,49 @@ func weapons(sw: Node) -> void:
 		for clip in ["idle", "draw", "shoot1", "reload", "lookat01"]:
 			check(player.has_animation(clip), "%s %s" % [id, clip])
 		if id == "usp-s":
-			check(sw.viewmodel.silencer != null, "USP-S separate silencer mesh")
-			if sw.viewmodel.silencer != null:
-				sw.viewmodel.play("silencer_detach", true)
-				sw.viewmodel.update_silencer(4.1)
-				check(sw.viewmodel.active_clip == "silencer_detach" and not sw.viewmodel.silencer.visible, "detach event")
-				sw.viewmodel.play("silencer_attach", true)
-				sw.viewmodel.update_silencer(0.5)
-				check(sw.viewmodel.active_clip == "silencer_attach" and sw.viewmodel.silencer.visible, "attach event")
+			silencer_actions(sw)
 	await ticks(2)
+
+func silencer_actions(sw: Node) -> void:
+	var vm = sw.viewmodel
+	vm.select("usp-s", false)
+	check(vm.silencer != null and vm.silencer.visible, "USP-S starts with the separate silencer attached")
+	if vm.silencer == null:
+		return
+	sw.actor.third_person = true
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_T
+	key.pressed = true
+	sw._unhandled_input(key)
+	check(vm.active_clip == "silencer_detach" and not sw.actor.third_person, "T starts detach and reveals the first-person animation")
+	check(not vm.toggle_silencer(), "another press cannot interrupt the clip")
+	var detach_time: float = vm.events.silencer_detach[1][0]
+	vm.animation_player.advance(detach_time - 0.05)
+	vm.update_silencer(vm.animation_player.current_animation_position)
+	check(vm.silencer.visible, "detach keeps the part visible until the authored key")
+	vm.animation_player.advance(0.10)
+	vm.update_silencer(vm.animation_player.current_animation_position)
+	check(not vm.silencer.visible, "detach hides the part after the authored key")
+	vm.animation_player.advance(2.0)
+	check(vm.active_clip == "idle" and not vm.silencer.visible, "detach returns to idle, still off")
+	key.physical_keycode = KEY_V
+	sw._unhandled_input(key)
+	sw._unhandled_input(key)
+	check(not sw.actor.third_person and not vm.silencer.visible, "changing camera preserves the detached state")
+	vm.select("ak-47", false)
+	check(not vm.toggle_silencer(), "AK-47 has no silencer action")
+	vm.select("usp-s", false)
+	check(not vm.silencer.visible and not vm.attached, "USP-S remembers the detached state after weapon swap")
+	check(vm.toggle_silencer() and vm.active_clip == "silencer_attach", "toggle plays attach when detached")
+	var attach_time: float = vm.events.silencer_attach[1][0]
+	vm.animation_player.advance(attach_time - 0.05)
+	vm.update_silencer(vm.animation_player.current_animation_position)
+	check(not vm.silencer.visible, "attach keeps the part hidden before the authored key")
+	vm.animation_player.advance(0.10)
+	vm.update_silencer(vm.animation_player.current_animation_position)
+	check(vm.silencer.visible, "attach shows the part after the authored key")
+	vm.animation_player.advance(5.0)
+	check(vm.active_clip == "idle" and vm.silencer.visible, "attach returns to idle, still on")
 
 func has_texture(node: Node) -> bool:
 	if node is MeshInstance3D and node.mesh != null:

@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+signal silencer_changed
+
 const Assets = preload("res://scripts/assets.gd")
 const Actor = preload("res://scripts/actor.gd")
 
@@ -8,6 +10,7 @@ var model: Node3D
 var animation_player: AnimationPlayer
 var silencer: Node3D
 var attached := true
+var usp_attached := true
 var events: Dictionary
 var active_clip := ""
 var viewport_3d := SubViewport.new()
@@ -26,12 +29,22 @@ func _ready() -> void:
 	var world := WorldEnvironment.new()
 	var env := Environment.new()
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("fff0df")
-	env.ambient_light_energy = 0.76
+	env.ambient_light_color = Color("e7ecf2")
+	env.ambient_light_energy = 0.50
+	var sky_fill := ProceduralSkyMaterial.new()
+	sky_fill.sky_top_color = Color("8092a2")
+	sky_fill.sky_horizon_color = Color("a2a1a0")
+	sky_fill.ground_horizon_color = Color("55514e")
+	sky_fill.ground_bottom_color = Color("3c3936")
+	var reflections := Sky.new()
+	reflections.sky_material = sky_fill
+	env.sky = reflections
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	world.environment = env
 	viewport_3d.add_child(world)
 	var lamp := DirectionalLight3D.new()
-	lamp.rotation_degrees = Vector3(-42, -26, 0)
+	lamp.rotation_degrees = Vector3(-44, -31, 0)
+	lamp.light_energy = 0.78
 	viewport_3d.add_child(lamp)
 	picture.texture = viewport_3d.get_texture()
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -54,7 +67,7 @@ func select(id: String, draw := true) -> void:
 	silencer = null
 	animation_player = null
 	active_clip = ""
-	attached = true
+	attached = usp_attached if id == "usp-s" else true
 	events = Assets.read_json(id)
 	if model != null:
 		viewport_3d.add_child(model)
@@ -64,21 +77,31 @@ func select(id: String, draw := true) -> void:
 			animation_player.animation_finished.connect(on_finished)
 			play("draw" if draw else "idle", true)
 
-func play(clip: String, force := false) -> void:
+func play(clip: String, force := false) -> bool:
 	if animation_player == null or not animation_player.has_animation(clip):
-		return
+		return false
 	if not force and active_clip not in ["", "idle"] and animation_player.is_playing():
-		return
+		return false
 	active_clip = clip
 	# Godot glTF import may infer looping from a clip name; actions always finish.
 	animation_player.get_animation(clip).loop_mode = Animation.LOOP_LINEAR if clip == "idle" else Animation.LOOP_NONE
 	animation_player.play(clip, 0.05)
 	animation_player.advance(0.0)
 	update_silencer(0.0)
+	if clip.begins_with("silencer_"):
+		silencer_changed.emit()
+	return true
 
-func toggle_silencer() -> void:
-	if silencer != null:
-		play("silencer_detach" if attached else "silencer_attach")
+func toggle_silencer() -> bool:
+	return silencer != null and play("silencer_detach" if attached else "silencer_attach")
+
+func silencer_hint() -> String:
+	match active_clip:
+		"silencer_attach":
+			return "Colocando silenciador…"
+		"silencer_detach":
+			return "Quitando silenciador…"
+	return "Silenciador puesto · T quitar" if attached else "Silenciador quitado · T colocar"
 
 func on_finished(clip: StringName) -> void:
 	if active_clip != String(clip):
@@ -86,6 +109,8 @@ func on_finished(clip: StringName) -> void:
 	update_silencer(INF)
 	if clip != &"idle":
 		play("idle", true)
+	if String(clip).begins_with("silencer_"):
+		silencer_changed.emit()
 
 func update_silencer(time: float) -> void:
 	if silencer == null:
@@ -93,6 +118,7 @@ func update_silencer(time: float) -> void:
 	for event in events.get(active_clip, []):
 		if time >= float(event[0]):
 			attached = bool(event[1])
+	usp_attached = attached
 	silencer.visible = attached
 
 func _process(_delta: float) -> void:

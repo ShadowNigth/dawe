@@ -83,7 +83,20 @@ func load_materials(header: Dictionary) -> void:
 		var rgba: Array = data.color
 		# glTF factors are linear; BaseMaterial3D stores its albedo color in sRGB.
 		mat.albedo_color = Color(rgba[0], rgba[1], rgba[2], rgba[3]).linear_to_srgb()
-		mat.roughness = 0.82
+		mat.roughness = float(data.get("roughness", 0.82))
+		mat.metallic = float(data.get("metallic", 0.0))
+		if int(data.get("normal", -1)) >= 0:
+			mat.normal_enabled = true
+			mat.normal_texture = textures[int(data.normal)]
+		if int(data.get("orm", -1)) >= 0:
+			var orm := textures[int(data.orm)]
+			mat.roughness_texture = orm
+			mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+			mat.metallic_texture = orm
+			mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+			mat.ao_enabled = true
+			mat.ao_texture = orm
+			mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		if data.texture >= 0:
 			mat.albedo_texture = textures[int(data.texture)]
 		mat.texture_repeat = data.repeat
@@ -105,6 +118,8 @@ func load_mesh(desc: Dictionary) -> ArrayMesh:
 		arrays[Mesh.ARRAY_NORMAL] = read_vec3(src.normals)
 		arrays[Mesh.ARRAY_TEX_UV] = read_vec2(src.uv)
 		arrays[Mesh.ARRAY_INDEX] = bytes(src.idx).to_int32_array()
+		if src.has("tangent"):
+			arrays[Mesh.ARRAY_TANGENT] = bytes(src.tangent).to_float32_array()
 		if src.has("joints"):
 			arrays[Mesh.ARRAY_BONES] = bytes(src.joints).to_int32_array()
 			arrays[Mesh.ARRAY_WEIGHTS] = bytes(src.weights).to_float32_array()

@@ -4,9 +4,9 @@
 
 ## Descargar el proyecto con los activos incluidos
 
-**[Descargar Dawe para Godot con modelos y texturas (.zip, 79,4 MiB)](downloads/Dawe-Godot-6b48a3a-con-activos.zip?raw=true)**
+**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-MultiRig-con-activos.zip?raw=true)**
 
-El ZIP contiene el proyecto del commit `6b48a3a` y los activos preparados de Dust II, SAS, Phoenix, USP-S y AK-47 con los brazos del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
+El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, y las versiones mejoradas de la USP-S y la AK-47 con los brazos del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
 
 ## Abrir el proyecto
 
@@ -20,7 +20,7 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | 3 / 4 | USP-S / AK-47 |
 | V | Alternar entre primera y tercera persona |
 | Clic izquierdo / R / F | Animación de disparo / recarga / inspección |
-| T | Quitar o montar el silenciador de la USP-S |
+| T | Quitar o colocar el silenciador con la USP-S equipada. Si estás en tercera persona, cambia a primera para mostrar la animación. |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
 
 ## Instalar los activos locales
@@ -42,14 +42,14 @@ Para sumar los modelos de primera persona, con **Blender 4.5+**:
 
 ```sh
 for weapon in usp-s ak-47; do
-  blender --background --python-exit-code 1 --python tools/build_viewmodel.py -- \
+  blender --background --python-exit-code 1 --python tools/build_godot_viewmodel.py -- \
     --weapon "$weapon" --output "third_party_assets/${weapon}_bake"
   python3 tools/port_godot_viewmodel.py --weapon "$weapon" \
     --smd "third_party_assets/${weapon}_bake"
 done
 ```
 
-Se reaprovecha el horneado del MultiRig, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, y **5 para AK-47**. Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
+Se hornea el MultiRig con la geometría original de brazos y arma, hasta cuatro pesos por vértice y mapas de color, normales y rugosidad/metalizado del arma, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, y **5 para AK-47**. Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
 
 ## Vista texturizada de Puertas Largas
 
@@ -62,7 +62,7 @@ python3 tools/build_godot_preview.py
 godot --path godot -- --visual-preview
 ```
 
-El generador crea paquetes `.vis` en `godot/generated/`, que el juego también puede leer sin importar los GLB en el editor. Conservan la malla, las texturas base, los esqueletos y los clips de esta demo. Fuera del recorte texturizado, el mapa sigue en modo de diagnóstico; el arranque habitual usa el Dust II visual completo cuando su GLB ya fue importado.
+El generador crea paquetes `.vis` en `godot/generated/`, que el juego también puede leer sin importar los GLB en el editor. Conservan la malla, las texturas, los esqueletos y los clips de esta demo, incluidos los mapas de normales, metalizado, rugosidad y oclusión de las armas. Fuera del recorte texturizado, el mapa sigue en modo de diagnóstico; el arranque habitual usa el Dust II visual completo cuando su GLB ya fue importado.
 
 ## Recorrer Puertas Largas con la colisión real
 
@@ -80,7 +80,7 @@ El recorrido verificado pasa por las dos puertas, rodea Larga hasta la bajada, e
 
 ```sh
 # Verificar el paquete generado sin abrir el editor
-python3 tools/check_godot_assets.py
+python3 tools/check_godot_assets.py --quality-viewmodels
 
 # Importar una vez y ejecutar las pruebas con Godot desde la terminal
 # (usar godot4 en lugar de godot si así se llama tu ejecutable)
@@ -91,7 +91,7 @@ godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y los dos eventos del silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
+La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y la visibilidad del silenciador antes y después de los dos eventos, y el estado al cambiar de cámara y de arma. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 

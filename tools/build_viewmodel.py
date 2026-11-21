@@ -165,7 +165,12 @@ def write_smd(path, parents, poses, tris=()):
             for texture, corners in tris:
                 out.write(texture + '\n')
                 for pos, norm, uv, bone in corners:
-                    out.write(f'{bone} ' + ' '.join(f'{v:.6f}' for v in (*pos, *norm, *uv)) + '\n')
+                    links = bone if isinstance(bone, tuple) else ()
+                    primary = links[0][0] if links else bone
+                    line = f'{primary} ' + ' '.join(f'{v:.7f}' for v in (*pos, *norm, *uv))
+                    if links:
+                        line += f' {len(links)}' + ''.join(f' {idx} {weight:.8f}' for idx, weight in links)
+                    out.write(line + '\n')
             out.write('end\n')
 
 
