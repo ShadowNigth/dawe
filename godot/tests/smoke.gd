@@ -31,10 +31,12 @@ func run() -> void:
 			check(sw.world.textured_sector and has_texture(sw.world), "textured Long sector on the real map")
 		agents(sw)
 		await weapons(sw)
+		bayonet_actions(sw)
 	else:
 		check(not sw.world.dust2, "training fixture")
 		await locomotion(sw)
 		await chase_camera(sw)
+		await movement_response(sw)
 	print("Dawe: ", failures.size(), " failures")
 	sw.queue_free()
 	await process_frame
@@ -136,6 +138,41 @@ func silencer_actions(sw: Node) -> void:
 	check(vm.silencer.visible, "attach shows the part after the authored key")
 	vm.animation_player.advance(5.0)
 	check(vm.active_clip == "idle" and vm.silencer.visible, "attach returns to idle, still on")
+
+func bayonet_actions(sw: Node) -> void:
+	var vm = sw.viewmodel
+	vm.select("ak-47", false)
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "bayonet" and sw.actor.stance == "knife", "wheel equips the bayonet and selects knife locomotion")
+	if vm.animation_player == null:
+		check(false, "bayonet scene loaded")
+		return
+	for clip in ["draw", "idle1", "idle2", "light_miss1", "light_miss2", "heavy_miss1", "lookat01", "lookat01_draw"]:
+		check(vm.animation_player.has_animation(clip), "bayonet " + clip)
+	check(has_texture(vm.model), "bayonet has textured materials")
+	check(vm.inspect() and vm.active_clip == "lookat01_draw", "inspect during draw plays its authored variant")
+	vm.animation_player.advance(8.0)
+	check(vm.active_clip == "idle1", "draw inspection returns to idle")
+	vm.animation_player.advance(2.1)
+	check(vm.active_clip == "idle2", "both idle variants play in sequence")
+	check(vm.primary_action() and vm.active_clip == "light_miss1", "bayonet first light clip")
+	check(not vm.primary_action(), "light clip cannot be restarted during its action")
+	vm.animation_player.advance(2.0)
+	check(vm.primary_action() and vm.active_clip == "light_miss2", "bayonet second light clip alternates")
+	vm.animation_player.advance(2.0)
+	var stab := InputEventMouseButton.new()
+	stab.button_index = MOUSE_BUTTON_RIGHT
+	stab.pressed = true
+	sw._unhandled_input(stab)
+	check(vm.active_clip == "heavy_miss1", "right click plays the bayonet's heavy clip")
+	vm.animation_player.advance(2.0)
+	check(vm.inspect() and vm.active_clip == "lookat01", "normal bayonet inspection")
+	sw._unhandled_input(wheel)
+	check(vm.weapon_id == "usp-s", "weapon wheel wraps from bayonet back to USP-S")
+
 
 func has_texture(node: Node) -> bool:
 	if node is MeshInstance3D and node.mesh != null:
@@ -252,3 +289,73 @@ func chase_camera(sw: Node) -> void:
 	sw.actor.third_person = false
 	await ticks(2)
 	check(sw.actor.camera.global_position.distance_to(eye) < 0.08, "first person camera stays at eye height")
+
+func movement_response(sw: Node) -> void:
+	var player = sw.actor
+	sw.world.block(Vector3(60, -0.3, 0), Vector3(16, 0.6, 24), Color.WHITE)
+	player.global_position = Vector3(60, 0.1, 4)
+	player.rotation.y = 0.0
+	player.reset_motion()
+	await ticks(20)
+	Input.action_press("crouch")
+	await ticks(2)
+	check(player.crouched and player.eye_height < 1.62 and player.eye_height > 0.79, "camera eases into crouching while the capsule shrinks")
+	await ticks(12)
+	check(is_equal_approx(player.eye_height, 0.79), "camera reaches crouch eye height")
+	Input.action_release("crouch")
+	await ticks(14)
+	Input.action_press("forward")
+	Input.action_press("run")
+	await ticks(18)
+	var launch_speed: float = absf(player.velocity.z)
+	check(launch_speed > 5.0, "gets to running pace promptly")
+	Input.action_press("jump")
+	await ticks(2)
+	Input.action_release("jump")
+	Input.action_release("forward")
+	Input.action_release("run")
+	await ticks(6)
+	check(not player.is_on_floor() and absf(absf(player.velocity.z) - launch_speed) < 0.15, "airborne release keeps takeoff momentum")
+	Input.action_press("right")
+	await ticks(8)
+	check(player.velocity.x > 0.65 and absf(player.velocity.z) > 4.5, "air strafe steers while preserving forward momentum")
+	Input.action_release("right")
+	for frame in 60:
+		if player.is_on_floor():
+			break
+		await ticks(1)
+	await ticks(16)
+	check(player.velocity.length() < 0.15, "ground friction stops the player after landing")
+
+	# Request a second jump shortly before touching ground; it fires on landing.
+	Input.action_press("jump")
+	await ticks(2)
+	Input.action_release("jump")
+	for frame in 35:
+		if player.velocity.y < 0.0 and player.global_position.y < 0.40:
+			break
+		await ticks(1)
+	Input.action_press("jump")
+	await ticks(2)
+	Input.action_release("jump")
+	await ticks(6)
+	check(not player.is_on_floor() and player.velocity.y > 2.0, "jump pressed before landing is buffered")
+
+	# Run off an isolated raised edge and then jump after the floor flag clears.
+	sw.world.block(Vector3(90, 0.7, 0), Vector3(4, 0.6, 3), Color.WHITE)
+	player.global_position = Vector3(90, 1.08, 0)
+	player.reset_motion()
+	await ticks(20)
+	Input.action_press("forward")
+	Input.action_press("run")
+	for frame in 60:
+		await ticks(1)
+		if not player.is_on_floor():
+			break
+	check(not player.is_on_floor(), "walked off the edge of the raised platform")
+	Input.action_press("jump")
+	await ticks(2)
+	Input.action_release("jump")
+	Input.action_release("forward")
+	Input.action_release("run")
+	check(player.velocity.y > 2.0, "jump works just after leaving a ledge")

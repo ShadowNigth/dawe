@@ -117,7 +117,7 @@ def frame_pose(rig, clip, parents, weapon_parts):
     return pose
 
 
-def read_duration(path):
+def read_duration(path, allow_short_secondary=False):
     with path.open('rb') as file:
         file.seek(12)
         size, kind = struct.unpack('<I4s', file.read(8))
@@ -126,10 +126,11 @@ def read_duration(path):
         data = json.loads(file.read(size))
     durations = [max(data['accessors'][s['input']]['max'][0] for s in a['samplers'])
                  for a in data['animations']]
-    if len(durations) != 2 or abs(durations[0] - durations[1]) > 1.1 / FPS:
+    if len(durations) != 2 or (not allow_short_secondary and abs(durations[0] - durations[1]) > 1.1 / FPS):
         raise ValueError(f'Se esperaban dos pistas sincronizadas: {path}')
     # Algunos clips de AK terminan un fotograma antes en la pista secundaria.
-    # Mantener los tiempos originales y dejar que Blender retenga la última pose.
+    # En la bayoneta la pista de la hoja puede incluso ser estática durante un idle.
+    # Mantener la duración completa; Blender retiene la última pose de cada pista.
     return max(durations)
 
 
@@ -189,8 +190,8 @@ def import_clip(path):
     return nodes
 
 
-def bake_sequence(path, rig, nodes, parents, weapon_parts):
-    duration = read_duration(path)
+def bake_sequence(path, rig, nodes, parents, weapon_parts, allow_short_secondary=False):
+    duration = read_duration(path, allow_short_secondary)
     intervals = round(duration * FPS)
     scene = bpy.context.scene
     for i in range(intervals + 1):

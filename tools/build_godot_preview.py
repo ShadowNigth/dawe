@@ -92,7 +92,7 @@ def bake(source, output, name):
         info = dict(texture=image_for(tex), alpha=value.get('alphaMode', 'OPAQUE'),
                     cutoff=value.get('alphaCutoff', .5), repeat=repeat,
                     two_sided=value.get('doubleSided', False), color=pbr.get('baseColorFactor', [1]*4))
-        if name in ('usp-s', 'ak-47'):
+        if name in ('usp-s', 'ak-47', 'bayonet'):
             info.update(normal=image_for(value.get('normalTexture')), orm=image_for(pbr.get('metallicRoughnessTexture')),
                         metallic=pbr.get('metallicFactor', 0), roughness=pbr.get('roughnessFactor', .82))
         pack.info['materials'].append(info)
@@ -130,7 +130,7 @@ def bake(source, output, name):
                 uv = uv_map(glb.accessor(uv_id)[selected], uv_spec) if uv_id is not None else np.zeros((len(selected), 2))
                 surface = dict(mat=material(prim['material']), pos=pack.put(pos[selected]),
                                normals=pack.put(normal), uv=pack.put(uv), idx=pack.put(indices, '<i4'))
-                if name in ('usp-s', 'ak-47') and 'TANGENT' in attrs:
+                if name in ('usp-s', 'ak-47', 'bayonet') and 'TANGENT' in attrs:
                     surface['tangent'] = pack.put(glb.accessor(attrs['TANGENT'])[selected])
                 if mesh['skin'] >= 0:
                     if 'JOINTS_1' in attrs:
@@ -204,7 +204,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--assets', type=Path, default=ROOT / 'godot/generated')
     args = p.parse_args()
-    for name in ('dust2-long', 'sas', 'phoenix', 'usp-s', 'ak-47'):
+    for name in ('dust2-long', 'sas', 'phoenix', 'usp-s', 'ak-47', 'bayonet'):
         filename = 'dust2' if name == 'dust2-long' else name
         bake(args.assets / f'{filename}.glb', args.assets / f'{name}.vis', name)
 

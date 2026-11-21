@@ -29,6 +29,8 @@ AGENT_CLIPS = ("idle", *(
 AK_CLIPS = ("idle", "draw", "shoot1", "reload", "lookat01")
 USP_CLIPS = (*AK_CLIPS, "silencer_attach", "silencer_detach")
 WEAPON_CLIPS = {"ak-47": AK_CLIPS, "usp-s": USP_CLIPS}
+BAYONET_CLIPS = ("idle1", "idle2", "draw", "light_miss1", "light_miss2", "heavy_miss1", "lookat01", "lookat01_draw")
+GODOT_WEAPON_CLIPS = {**WEAPON_CLIPS, "bayonet": BAYONET_CLIPS}
 CS2GO_MODELS = (
     "maps/dust2.glb.gz",
     "maps/dust2-physics.glb.gz",
@@ -42,6 +44,10 @@ CS2GO_MODELS = (
     "animations/locomotion/source.json",
     "ak-47.glb",
     "usp-s.glb",
+    "bayonet.glb",
+    "bayonet.source.json",
+    "animations/bayonet/source.json",
+    *(f"animations/bayonet/{clip}.glb" for clip in BAYONET_CLIPS),
     *(
         path
         for weapon, clips in WEAPON_CLIPS.items()

@@ -8,7 +8,7 @@ import struct
 import numpy as np
 
 from build_agents import GLTF, rotation
-from import_assets import AGENT_CLIPS, ROOT, WEAPON_CLIPS
+from import_assets import AGENT_CLIPS, ROOT, GODOT_WEAPON_CLIPS, WEAPON_CLIPS
 
 
 def read(path):
@@ -70,7 +70,7 @@ def floor_height(meshes, position):
     return y
 
 
-def verify_quality(doc, model):
+def verify_quality(doc, model, bayonet=False):
     assert len(doc['skins'][0]['joints']) > 90
     assert {'silverhand', 'grip-implant', 'skin', 'weapon-color'} <= {mat['name'] for mat in doc['materials']}
     skinned_hands = 0
@@ -84,8 +84,10 @@ def verify_quality(doc, model):
             if mat['name'] != 'weapon-color':
                 skinned_hands += np.count_nonzero((weights > 0.00001).sum(axis=1) > 1)
             if mat['name'] != 'skin':
-                assert 'normalTexture' in mat and 'occlusionTexture' in mat
-                assert 'metallicRoughnessTexture' in mat['pbrMetallicRoughness'] and 'TANGENT' in surf['attributes']
+                assert 'occlusionTexture' in mat
+                if not (bayonet and mat['name'] == 'weapon-color'):
+                    assert 'normalTexture' in mat and 'TANGENT' in surf['attributes']
+                assert 'metallicRoughnessTexture' in mat['pbrMetallicRoughness']
     assert skinned_hands > 1000 and original_tris > 25000
     print(f'  {original_tris:,} triángulos y {skinned_hands:,} vértices de brazo con múltiples pesos')
 
@@ -151,7 +153,7 @@ def main():
     parser.add_argument('--quality-viewmodels', action='store_true', help='exige las armas mejoradas con PBR y pesos múltiples')
     parser.add_argument('--assets', type=Path, default=ROOT / 'godot/generated')
     args = parser.parse_args()
-    for name, clips in {**WEAPON_CLIPS, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
+    for name, clips in {**GODOT_WEAPON_CLIPS, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
         doc, glb = read(args.assets / f'{name}.glb')
         assert {a['name'] for a in doc['animations']} == set(clips), name
         for clip in doc['animations']:
@@ -161,9 +163,17 @@ def main():
                 assert t[0] == 0 and (np.diff(t) > 0).all()
                 assert len(t) == len(glb.accessor(sampler['output']))
         print(f'{name}: {len(clips)} clips y {len(doc["skins"])} skin(s)')
-        if args.quality_viewmodels and name in WEAPON_CLIPS:
-            verify_quality(doc, glb)
-            verify_grips(doc, glb)
+        if args.quality_viewmodels and name in GODOT_WEAPON_CLIPS:
+            verify_quality(doc, glb, bayonet=name == 'bayonet')
+            if name in WEAPON_CLIPS:
+                verify_grips(doc, glb)
+        if name == 'bayonet':
+            blade, = (surf for mesh in doc['meshes'] for surf in mesh['primitives']
+                      if doc['materials'][surf['material']]['name'] == 'weapon-color')
+            assert len(glb.accessor(blade['indices'])) == 2202 * 3
+            slot = next(i for i, n in enumerate(doc['nodes']) if n['name'] == 'weapon_offset')
+            joints = glb.accessor(blade['attributes']['JOINTS_0'])
+            assert np.all(joints[:, 0] == doc['skins'][0]['joints'].index(slot))
     doc, _ = read(args.assets / 'dust2.glb')
     assert sum(len(m['primitives']) for m in doc['meshes']) == 691
     assert len(doc['images']) == 564

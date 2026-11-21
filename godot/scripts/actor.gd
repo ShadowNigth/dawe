@@ -8,6 +8,17 @@ const CROUCH := 1.92
 const STAND_H := 1.82
 const DUCK_H := 0.94
 const GRAVITY := 19.5
+const GROUND_ACCEL := 14.0
+const GROUND_FRICTION := 8.0
+const STOP_SPEED := 2.4
+const AIR_ACCEL := 3.1
+const AIR_WISH_CAP := 2.25
+const AIR_SPEED_LIMIT := 6.4
+const JUMP_SPEED := 5.0
+const JUMP_BUFFER := 0.11
+const COYOTE_TIME := 0.075
+const STAND_EYE := 1.62
+const DUCK_EYE := 0.79
 
 var avatar := Node3D.new()
 var camera := Camera3D.new()
@@ -26,6 +37,9 @@ var current_clip := ""
 var frozen_pose := false
 var stance := "pistol"
 var fallback: MeshInstance3D
+var queued_jump := 0.0
+var floor_grace := 0.0
+var eye_height := STAND_EYE
 
 func _ready() -> void:
 	collision_layer = DustCollision.PLAYER
@@ -109,20 +123,47 @@ func set_crouch(requested: bool) -> void:
 		fallback.scale.y = capsule.height / STAND_H
 		fallback.position.y = collision.position.y
 
+func reset_motion() -> void:
+	velocity = Vector3.ZERO
+	queued_jump = 0.0
+	floor_grace = 0.0
+	eye_height = DUCK_EYE if crouched else STAND_EYE
+
+# Add speed only in the requested direction. Air steering can redirect a jump
+# without forcibly interpolating away the velocity the player took off with.
+static func accelerate(horizontal: Vector2, wish: Vector2, speed: float, push: float) -> Vector2:
+	var remaining := speed - horizontal.dot(wish)
+	return horizontal + wish * minf(remaining, push) if remaining > 0.0 else horizontal
+
 func _physics_process(delta: float) -> void:
 	set_crouch(Input.is_action_pressed("crouch"))
 	move_direction = Input.get_vector("left", "right", "forward", "back")
 	var desired := transform.basis * Vector3(move_direction.x, 0, move_direction.y)
+	var wish := Vector2(desired.x, desired.z).normalized()
 	var running := Input.is_action_pressed("run")
-	var speed := CROUCH if crouched else RUN if running else WALK
+	var run_speed := RUN * (1.06 if stance == "knife" else 1.0)
+	var speed := CROUCH if crouched else run_speed if running else WALK
+	var wish_speed := speed * move_direction.length()
 	var horizontal := Vector2(velocity.x, velocity.z)
 	var grounded := is_on_floor()
-	var accel := (22.0 if move_direction.is_zero_approx() else 26.0) if grounded else 4.5
-	horizontal = horizontal.move_toward(Vector2(desired.x, desired.z) * speed, accel * delta)
+	floor_grace = COYOTE_TIME if grounded else maxf(0.0, floor_grace - delta)
+	queued_jump = JUMP_BUFFER if Input.is_action_just_pressed("jump") else maxf(0.0, queued_jump - delta)
+	var jumping := not crouched and queued_jump > 0.0 and floor_grace > 0.0
+	if grounded and not jumping:
+		horizontal = horizontal.move_toward(Vector2.ZERO, maxf(horizontal.length(), STOP_SPEED) * GROUND_FRICTION * delta)
+		horizontal = accelerate(horizontal, wish, wish_speed, GROUND_ACCEL * speed * delta)
+		if not wish.is_zero_approx():
+			horizontal = horizontal.limit_length(maxf(wish_speed, horizontal.dot(wish)))
+	elif not wish.is_zero_approx():
+		var air_limit := maxf(horizontal.length(), AIR_SPEED_LIMIT)
+		horizontal = accelerate(horizontal, wish, minf(wish_speed, AIR_WISH_CAP), AIR_ACCEL * wish_speed * delta)
+		horizontal = horizontal.limit_length(air_limit)
 	velocity.x = horizontal.x
 	velocity.z = horizontal.y
-	if grounded and Input.is_action_just_pressed("jump") and not crouched:
-		velocity.y = 5.0
+	if jumping:
+		queued_jump = 0.0
+		floor_grace = 0.0
+		velocity.y = JUMP_SPEED
 	elif not grounded:
 		velocity.y -= GRAVITY * delta
 	move_and_slide()
@@ -159,7 +200,8 @@ func update_avatar(running: bool) -> void:
 			animation_player.pause()
 
 func update_camera(delta: float) -> void:
-	var eye := global_position + Vector3.UP * (0.79 if crouched else 1.62)
+	eye_height = move_toward(eye_height, DUCK_EYE if crouched else STAND_EYE, 6.5 * delta)
+	var eye := global_position + Vector3.UP * eye_height
 	camera.rotation.x = pitch
 	if not third_person:
 		arm_fraction = 0

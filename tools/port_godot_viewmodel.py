@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 from build_godot_assets import Writer, animation, quaternion
-from import_assets import ROOT, WEAPON_CLIPS
+from import_assets import ROOT, GODOT_WEAPON_CLIPS
 
 # GoldSrc export to camera-local Godot, Y up and -Z forward. Both meshes
 # and the local bind/animation transforms use the same change of basis.
@@ -86,7 +86,7 @@ def tangent_frame(pos, uv, normals, indices):
 
 
 def build(folder, weapon, output):
-    names, frames, _ = read_smd(folder / 'idle.smd')
+    names, frames, _ = read_smd(folder / ('idle1.smd' if weapon == 'bayonet' else 'idle.smd'))
     initial = frames[0]
     bind_path = folder / 'skin_bind.smd'
     if bind_path.exists():
@@ -129,7 +129,7 @@ def build(folder, weapon, output):
             doc['textures'].append(dict(source=texture_id))
         return dict(index=textures[file])
     by_piece = defaultdict(lambda: defaultdict(list))
-    clips = set(WEAPON_CLIPS[weapon])
+    clips = set(GODOT_WEAPON_CLIPS[weapon])
     for path in sorted(folder.glob('*.smd')):
         if path.stem in clips or path == bind_path:
             continue
@@ -191,7 +191,7 @@ def build(folder, weapon, output):
     if not doc['meshes'] or ('Silencer' in by_piece) != (weapon == 'usp-s'):
         raise ValueError(f'Falta geometría de {weapon}')
     events = {}
-    for clip in WEAPON_CLIPS[weapon]:
+    for clip in GODOT_WEAPON_CLIPS[weapon]:
         other, frames, _ = read_smd(folder / f'{clip}.smd')
         if other != names or not frames:
             raise ValueError(f'Clip incompatible: {clip}')
@@ -220,7 +220,7 @@ def build(folder, weapon, output):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--smd', type=Path, required=True)
-    p.add_argument('--weapon', choices=WEAPON_CLIPS, required=True)
+    p.add_argument('--weapon', choices=GODOT_WEAPON_CLIPS, required=True)
     p.add_argument('--output', type=Path, default=ROOT / 'godot/generated')
     args = p.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)

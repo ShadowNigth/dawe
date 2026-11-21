@@ -56,7 +56,7 @@ class GripRetarget:
         pose[name] = transform(rotation @ self.bind_rotation[name], pose[name].translation)
         return rotation
 
-    def apply(self, pose, clip, settle=0.0):
+    def apply(self, pose, clip, settle=0.0, lock_right=True):
         gun_delta = pose['weapon_offset'] @ self.weapon_inverse
         if clip == 'shoot1':
             # Both grips stay fixed in weapon space during recoil. Weapon parts
@@ -66,7 +66,7 @@ class GripRetarget:
                     pose[name] = gun_delta @ self.idle[name]
             return pose
         for upper, fore, hand, *fingers in self.arm_chains:
-            if clip != 'idle' and hand == 'RightHand':
+            if lock_right and clip != 'idle' and hand == 'RightHand':
                 target = gun_delta @ self.idle[hand]
                 correction = target @ pose[hand].inverted()
                 pose[hand] = target

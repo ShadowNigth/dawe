@@ -6,6 +6,7 @@ const Assets = preload("res://scripts/assets.gd")
 const Actor = preload("res://scripts/actor.gd")
 
 var weapon_id := "usp-s"
+var next_light := "light_miss1"
 var model: Node3D
 var animation_player: AnimationPlayer
 var silencer: Node3D
@@ -60,6 +61,7 @@ func resize() -> void:
 
 func select(id: String, draw := true) -> void:
 	weapon_id = id
+	next_light = "light_miss1"
 	if model != null:
 		viewport_3d.remove_child(model)
 		model.queue_free()
@@ -75,12 +77,31 @@ func select(id: String, draw := true) -> void:
 		animation_player = Actor.find_animation_player(model)
 		if animation_player != null:
 			animation_player.animation_finished.connect(on_finished)
-			play("draw" if draw else "idle", true)
+			play("draw" if draw else idle_clip(), true)
+
+func idle_clip() -> String:
+	return "idle1" if weapon_id == "bayonet" else "idle"
+
+func is_idle(clip: String) -> bool:
+	return clip in ["idle", "idle1", "idle2"]
+
+func primary_action() -> bool:
+	if weapon_id != "bayonet":
+		return play("shoot1")
+	if not play(next_light):
+		return false
+	next_light = "light_miss2" if next_light == "light_miss1" else "light_miss1"
+	return true
+
+func inspect() -> bool:
+	if weapon_id == "bayonet" and active_clip == "draw":
+		return play("lookat01_draw", true)
+	return play("lookat01")
 
 func play(clip: String, force := false) -> bool:
 	if animation_player == null or not animation_player.has_animation(clip):
 		return false
-	if not force and active_clip not in ["", "idle"] and animation_player.is_playing():
+	if not force and not (active_clip.is_empty() or is_idle(active_clip)) and animation_player.is_playing():
 		return false
 	active_clip = clip
 	# Godot glTF import may infer looping from a clip name; actions always finish.
@@ -107,8 +128,10 @@ func on_finished(clip: StringName) -> void:
 	if active_clip != String(clip):
 		return
 	update_silencer(INF)
-	if clip != &"idle":
-		play("idle", true)
+	if weapon_id == "bayonet" and clip == &"idle1":
+		play("idle2", true)
+	elif clip != &"idle":
+		play(idle_clip(), true)
 	if String(clip).begins_with("silencer_"):
 		silencer_changed.emit()
 

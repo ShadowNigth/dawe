@@ -8,14 +8,15 @@ import bpy
 from mathutils import Matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, arm_names, frame_pose,
+from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, Weapon, arm_names, frame_pose,
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
-from import_assets import WEAPON_CLIPS
+from import_assets import GODOT_WEAPON_CLIPS
 from bake_multirig_material import bake_material
 from retarget_godot_arms import GripRetarget
 
 # This mesh references an auxiliary joint absent from the distributed rig.
 JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
+BAYONET = Weapon('bayonet', 'Bayonet worn steel and olive grip', ('weapon_offset',))
 
 
 def linked_weights(vertex, names, ids, default):
@@ -109,8 +110,12 @@ def pose_with_support(pose, rest, support):
 def build(assets, output, weapon_name):
     if output.exists():
         raise FileExistsError(output)
-    weapon = WEAPONS[weapon_name]
-    directory = assets / 'cs2go/viewmodels'
+    knife = weapon_name == 'bayonet'
+    weapon = BAYONET if knife else WEAPONS[weapon_name]
+    cs2go = assets / 'cs2go'
+    mesh_path = cs2go / ('bayonet.glb' if knife else f'viewmodels/{weapon_name}.glb')
+    clips = cs2go / (f'animations/{weapon_name}' if knife else f'viewmodels/{weapon_name}')
+    idle_name = 'idle1' if knife else 'idle'
     bpy.ops.wm.open_mainfile(filepath=str(assets / 'multirig/Cyberpunk_Rig.blend'), use_scripts=False)
     scene = bpy.context.scene
     scene.render.fps, scene.render.fps_base = FPS, 1
@@ -136,9 +141,8 @@ def build(assets, output, weapon_name):
             for name in parents if name != 'root'}
     parents.update({name: 'root' if name == 'weapon_offset' else 'weapon_offset' for name in weapon.parts})
     ids = {name: i for i, name in enumerate(parents)}
-    gun, = (obj for obj in import_gltf(directory / f'{weapon_name}.glb').values()
-            if obj.type == 'MESH' and obj.parent and obj.parent.type == 'ARMATURE')
-    idle = import_clip(directory / weapon_name / 'idle.glb')
+    gun, = (obj for obj in import_gltf(mesh_path).values() if obj.type == 'MESH')
+    idle = import_clip(clips / f'{idle_name}.glb')
     scene.frame_set(0)
     only_core = {name: parent for name, parent in parents.items() if name not in support}
     idle_pose = frame_pose(rig, idle, only_core, weapon.parts)
@@ -146,18 +150,29 @@ def build(assets, output, weapon_name):
     GripRetarget(rest, idle_pose).apply(idle_pose, 'idle')
     output.mkdir(parents=True)
     image_file(bpy.data.images['a0_000_ma__c_base_hq_d01'], output / 'skin.png')
-    for suffix, file in [('color', 'weapon-color.webp'), ('ORM', 'weapon-orm.webp'), ('normal', 'weapon-normal.webp')]:
-        image_file(bpy.data.images[f'{weapon.material} {suffix}'], output / file)
-    materials = {'skin.png': {'metallic': 0., 'roughness': .61}, 'weapon-color.webp': {
-        'metallic': 1., 'roughness': 1., 'normal': 'weapon-normal.webp', 'orm': 'weapon-orm.webp'}}
+    weapon_surface = {'metallic': 1., 'roughness': 1., 'orm': 'weapon-orm.webp'}
+    if knife:
+        image_file(bpy.data.images['Bayonet color'], output / 'weapon-color.webp')
+        image_file(bpy.data.images['Bayonet occlusion roughness metalness'], output / 'weapon-orm.webp')
+    else:
+        for suffix, file in [('color', 'weapon-color.webp'), ('ORM', 'weapon-orm.webp'), ('normal', 'weapon-normal.webp')]:
+            image_file(bpy.data.images[f'{weapon.material} {suffix}'], output / file)
+        weapon_surface['normal'] = 'weapon-normal.webp'
+    materials = {'skin.png': {'metallic': 0., 'roughness': .61}, 'weapon-color.webp': weapon_surface}
     arm_textures = {}
     for obj, name, size in ((silver, 'silverhand', 512), (grip, 'grip-implant', 256)):
         tex, spec = bake_material(obj, output, name, size)
         arm_textures[obj.name] = tex
         materials[tex] = spec
     (output / 'materials.json').write_text(json.dumps(materials), encoding='utf-8')
-    anchor = gun.matrix_world.inverted() @ gun.parent.matrix_world @ gun.parent.data.bones['weapon_offset'].head_local
-    weapon_pose = STUDIO @ idle['wpn'].matrix_world @ Matrix.Translation(-anchor)
+    if knife:
+        # glTF extras store a column-major change to the clip's weapon space.
+        columns = gun['meshToSource']
+        mesh_to_source = Matrix([columns[i:i+4] for i in range(0, 16, 4)]).transposed()
+        weapon_pose = rest['weapon_offset'] @ STUDIO.inverted() @ mesh_to_source @ STUDIO @ gun.matrix_world
+    else:
+        anchor = gun.matrix_world.inverted() @ gun.parent.matrix_world @ gun.parent.data.bones['weapon_offset'].head_local
+        weapon_pose = STUDIO @ idle['wpn'].matrix_world @ Matrix.Translation(-anchor)
     slot = next(i for i, material in enumerate(gun.data.materials) if material.name == weapon.material)
     weapons = list(triangles(gun, weapon_pose, 'weapon-color.webp', ids, 'weapon_offset', slot))
     if 'silencer' in ids:
@@ -173,16 +188,16 @@ def build(assets, output, weapon_name):
         print(f'{side}: {len(geometry)} tris originales', flush=True)
     write_smd(output / 'skin_bind.smd', parents, [rest])
     events = {}
-    for name in WEAPON_CLIPS[weapon_name]:
-        path = directory / weapon_name / f'{name}.glb'
-        nodes = idle if name == 'idle' else import_clip(path)
-        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts))
+    for name in GODOT_WEAPON_CLIPS[weapon_name]:
+        path = clips / f'{name}.glb'
+        nodes = idle if name == idle_name else import_clip(path)
+        poses, visible = zip(*bake_sequence(path, rig, nodes, only_core, weapon.parts, allow_short_secondary=knife))
         retarget = GripRetarget(rest, idle_pose)
         def stable_poses():
             for i, pose in enumerate(poses):
                 settle = max(0.0, 1.0 - (len(poses) - 1 - i) / 12) if len(poses) > 12 else 0.0
                 settle = settle * settle * (3 - 2 * settle)
-                yield pose_with_support(retarget.apply(pose, name, settle), rest, support)
+                yield pose_with_support(retarget.apply(pose, 'idle' if name == idle_name else name, 0.0 if knife else settle, lock_right=not knife), rest, support)
 
         write_smd(output / f'{name}.smd', parents, stable_poses())
         if name.startswith('silencer_'):
@@ -199,7 +214,7 @@ def build(assets, output, weapon_name):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--assets', type=Path, default=ROOT / 'third_party_assets')
-    p.add_argument('--weapon', choices=WEAPONS, required=True)
+    p.add_argument('--weapon', choices=GODOT_WEAPON_CLIPS, required=True)
     p.add_argument('--output', type=Path, required=True)
     args = p.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     build(args.assets.resolve(), args.output.resolve(), args.weapon)
