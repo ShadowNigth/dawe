@@ -22,6 +22,8 @@ from SourceIO.library.models.vvd import Vvd
 from SourceIO.library.source1.vtf import load_vtf_texture
 from SourceIO.library.utils import MemoryBuffer
 
+from archi_catalog import EXTRA_MODELS, SILENCERS, TUBE_SHOTGUNS
+from archi_cyberpunk import fit as fit_cyberpunk
 from build_godot_assets import Writer, quaternion
 from build_weapon_drops import build as build_drop
 from build_godot_preview import bake
@@ -39,6 +41,7 @@ MODELS = {
     'awp': ('awp', 'v_snip_awp', {'idle': 'awp_idle', 'shoot1': 'awp_fire', 'draw': 'awp_draw', 'reload': 'awp_reload'}),
     'bayonet': ('knife_kukri', 'v_knife_kukri', {'lookat01_draw': 'lookat01'}),
 }
+MODELS.update(EXTRA_MODELS)
 
 
 def buffer(path):
@@ -150,7 +153,7 @@ def globals_from_frames(names, local):
     return np.array(matrices)
 
 
-def vtf(path, limit=1024):
+def vtf(path, limit=768):
     raw = path.read_bytes()
     # Decode the first mip within the export budget, not the full 4096² atlas.
     width, height = int.from_bytes(raw[16:18], 'little'), int.from_bytes(raw[18:20], 'little')
@@ -267,7 +270,7 @@ def weapon_mesh(export, mdl, path, materials, weapon):
     gun, silencer = [], []
     silencer_ids = [i for i, (name, _) in enumerate(export.names) if 'silencer' in name.lower()]
     for body, layout in zip(mdl.body_parts, vtx.body_parts, strict=True):
-        if body.name.lower() == 'rig':
+        if body.name.lower() in ('rig',) or not body.models[0].vertex_count:
             continue
         model, lod = body.models[0], layout.models[0].model_lods[0]
         data = vvd[model.vertex_offset:model.vertex_offset + model.vertex_count]
@@ -293,7 +296,7 @@ def weapon_mesh(export, mdl, path, materials, weapon):
                         target.append(export.primitive(d['vertex'] @ Y_UP.T * .0254, d['normal'] @ Y_UP.T,
                                                        d['uv'], links, weights, selected, entry))
     export.mesh('ArmsAndWeapon', gun, 0)
-    if weapon == 'usp-s' and not any(silencer):
+    if weapon in SILENCERS and not any(silencer):
         raise ValueError('No se encontró la malla móvil del silenciador')
     export.mesh('Silencer', silencer, 0)
 
@@ -445,20 +448,54 @@ def apply_slide_layer(base, layer, names):
     return fps, positions, rotations
 
 
-def assemble(root, output, weapon):
+def restore_famas_wrist(export, positions, rotations):
+    """Source retracts the left wrist bone into its elbow during the mag grab.
+
+    The Cyberpunk forearm is weighted across both bones; reconstruct its span
+    while keeping the authored hand transform (and magazine) in place.
+    """
+    forearm = export.ids['v_weapon.Bip01_L_Forearm']
+    hand = export.ids['v_weapon.Bip01_L_Hand']
+    assert export.names[forearm][1] < 0 and export.names[hand][1] == forearm
+    track = positions[:, hand]
+    length = np.linalg.norm(track, axis=1)
+    span = float(np.linalg.norm(export.world[hand, :3, 3] - export.world[forearm, :3, 3]))
+    good = np.flatnonzero(length >= span * .98)
+    if not len(good):
+        return positions
+    positions = positions.copy()
+    for frame in np.flatnonzero(length < span * .98):
+        axes = np.array([np.interp(frame, good, track[good, axis]) for axis in range(3)])
+        corrected = axes * span / np.linalg.norm(axes)
+        positions[frame, forearm] += rotation(rotations[frame, forearm]) @ (track[frame] - corrected)
+        positions[frame, hand] = corrected
+    return positions
+
+
+def assemble(root, output, weapon, arms=None, drop=True):
     key, name, alias = MODELS[weapon]
-    folder, = root.glob(f'**/m_cs2_{key}')
-    source, = folder.rglob(f'{name}.mdl')
+    source, = (p for p in root.rglob(f'{name}.mdl') if any(piece == f'm_cs2_{key}' for piece in p.parts))
+    folder = next(parent for parent in source.parents if parent.name == f'm_cs2_{key}')
     model, data = read_model(source)
     export = Export(model)
     weapon_mesh(export, model, source, weapon_materials(export, model, folder), weapon)
-    rig = 'Knife Rig' if weapon == 'bayonet' else ('Saseky Rig' if weapon in ('glock', 'usp-s') else 'Rootns Rig')
-    gloves(export, root/'Sport_gloves', rig)
-
-    ani = buffer(source.with_suffix('.ani'))
+    ani_path = source.with_suffix('.ani')
+    ani = buffer(ani_path) if ani_path.exists() else None
     blocks = read_anim_block_table(data, model.header.anim_block_offset, model.header.anim_block_count)
     clips = [(desc.fps, *decode_animation(desc, model, data, ani, blocks)) for desc in model.anim_descs]
     sequences = {seq.name: seq for seq in model.sequences}
+    if arms:
+        if weapon == 'famas':
+            reload_id = sequences['reload'].anim_desc_indices[0]
+            fps, pos, quat = clips[reload_id]
+            clips[reload_id] = (fps, restore_famas_wrist(export, pos, quat), quat)
+        rest = sequences[alias.get('idle', 'idle1' if weapon == 'bayonet' else 'idle')]
+        _, positions, rotations = clips[rest.anim_desc_indices[0]]
+        neutral = globals_from_frames(export.names, [(p, rotation(q)) for p, q in zip(positions[0], rotations[0])])
+        fit_cyberpunk(export, arms, neutral)
+    else:
+        rig = 'Knife Rig' if weapon == 'bayonet' else ('Saseky Rig' if weapon in ('glock', 'usp-s') else 'Rootns Rig')
+        gloves(export, root/'Sport_gloves', rig)
     cues = {}
     for name, seq in {**sequences, **{new: sequences[old] for new, old in alias.items()}}.items():
         variants = list(dict.fromkeys(i for i in seq.anim_desc_indices if 0 <= i < len(clips)))
@@ -488,19 +525,53 @@ def assemble(root, output, weapon):
             raise ValueError('Rig incompatible en el .mdl de inspección del kukri')
         desc = mdl.anim_descs[0]
         export.animation('inspect_menu_pose', desc.fps, *decode_animation(desc, mdl, d, None, []))
-    if weapon == 'usp-s':
+    if weapon in TUBE_SHOTGUNS:
+        names = ('start_reload', 'insert', 'insert', 'insert', 'after_reload')
+        parts = [clips[sequences[n].anim_desc_indices[0]] for n in names]
+        fps = max(f for f, _, _ in parts)
+        resampled = []
+        for source_fps, pos, rot in parts:
+            times = np.linspace(0, len(pos)-1, round((len(pos)-1)*fps/source_fps)+1)
+            lo = np.floor(times).astype(int)
+            hi = np.minimum(lo+1, len(pos)-1)
+            ratio = (times-lo)[:, None, None]
+            blend = np.where(np.sum(rot[lo]*rot[hi], axis=-1, keepdims=True) < 0, -rot[hi], rot[hi])
+            q = rot[lo]*(1-ratio)+blend*ratio
+            q /= np.linalg.norm(q, axis=-1, keepdims=True)
+            resampled.append((fps, pos[lo]*(1-ratio)+pos[hi]*ratio, q))
+        parts = resampled
+        positions = np.concatenate([p[:-1] if i < len(parts)-1 else p for i, (_, p, _) in enumerate(parts)])
+        rotations = np.concatenate([q[:-1] if i < len(parts)-1 else q for i, (_, _, q) in enumerate(parts)])
+        export.animation('reload', fps, positions, rotations)
+        duration = len(positions) - 1
+        start = 0
+        cues['reload'] = []
+        for n, (_, p, _) in zip(names, parts):
+            cues['reload'].extend(((start + t*(len(p)-1))/duration, cue) for t, cue in cues[n])
+            start += len(p)-1
+    if weapon in SILENCERS:
         events = {}
         for name, initially, transition in [('silencer_attach', False, .109589), ('silencer_detach', True, .794521)]:
+            if weapon != 'usp-s':
+                # Model bodygroup event for M4A1-S is resolved from the source.
+                seq = sequences[alias[name]]
+                options = [e.cycle for e in seq.events if e.event == 5001 and 0 < e.cycle < 1]
+                transition = options[0] if options else (.12 if not initially else .79)
             fps, pos, _ = clips[sequences[alias[name]].anim_desc_indices[0]]
             events[name] = [[0, initially], [round(transition*(len(pos)-1))/fps, not initially]]
-        (output/'usp-s.json').write_text(json.dumps(events, indent=2)+'\n')
+        (output/f'{weapon}.json').write_text(json.dumps(events, indent=2)+'\n')
     path = output/f'{weapon}.glb'
     export.w.save(path)
     bake(path, path.with_suffix('.vis'), weapon)
     if weapon != 'bayonet':
-        build_drop(path, output/f'{weapon}-drop.vis')
-        icon, = folder.glob('**/base_weapons/*.png')
-        with Image.open(icon) as original:
+        if drop:
+            build_drop(path, output/f'{weapon}-drop.vis')
+        icons = sorted(folder.glob('**/base_weapons/*.png'))
+        if not icons:
+            icons = sorted(folder.glob('**/preview.png'))
+        if not icons:
+            raise ValueError(f'Icono ausente en el pack: {weapon}')
+        with Image.open(icons[0]) as original:
             image = original.convert('RGBA')
             image = image.crop(image.getbbox())
             image.thumbnail((320, 128), Image.Resampling.LANCZOS)
@@ -514,10 +585,11 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--weapon', choices=MODELS, action='append')
+    parser.add_argument('--arms', type=Path, help='GLB anterior con los brazos de Cyberpunk')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     for weapon in args.weapon or MODELS:
-        cues = assemble(args.source, args.output, weapon)
+        cues = assemble(args.source, args.output, weapon, args.arms)
         (args.output/f'{weapon}-source-events.json').write_text(json.dumps(cues, indent=2)+'\n')
 
 

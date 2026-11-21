@@ -1,13 +1,14 @@
 # Dawe — prototipo de shooter en Godot 4
 
-**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los modelos de primera persona de USP-S, Glock-18, Desert Eagle, AK-47, M4A4, AWP y kukri del [pack Archi](docs/archi-weapons.md). Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
+**Godot es el motor principal del proyecto.** La escena de arranque está en [`godot/project.godot`](godot/project.godot). El prototipo tiene movimiento local, primera y tercera persona, SAS y Phoenix, y los brazos de Cyberpunk 2077 en primera persona y 36 armas del [pack Archi](docs/archi-weapons.md). Los modelos de arma reproducen animaciones; todavía no hay balística, daño, bots ni multijugador.
 
 ## Descargar el proyecto con los activos incluidos
 
 1. **[Proyecto, armas, agentes y sonidos (.zip)](downloads/Dawe-Godot-Compra-Armas.zip?raw=true)**
-2. **[Mapa completo de Dust II (.zip)](downloads/Dawe-Godot-Dust-II.zip?raw=true)**
+2. **[Complemento para desbloquear las 29 armas adicionales (.zip)](downloads/Dawe-Godot-Arsenal-Archi.zip?raw=true)**
+3. **[Mapa completo de Dust II (.zip)](downloads/Dawe-Godot-Dust-II.zip?raw=true)**
 
-Extraé **ambos ZIP en el mismo lugar** para que compartan la carpeta `Dawe-Godot`. Abrí `Dawe-Godot/godot/project.godot` con Godot 4.5 o posterior, esperá a que termine la importación y presioná **F5**. El primer ZIP también funciona solo en la pista local. No hace falta correr los scripts de importación para jugar.
+Extraé **los ZIP en el mismo lugar** para que compartan la carpeta `Dawe-Godot`. Abrí `Dawe-Godot/godot/project.godot` con Godot 4.5 o posterior, esperá a que termine la importación y presioná **F5**. El primer ZIP funciona solo en la pista local con siete armas. El mapa es opcional. No hace falta correr los scripts de importación para jugar.
 
 ## Abrir el proyecto
 
@@ -23,15 +24,15 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | G / E | Soltar el arma equipada / recoger y equipar la más cercana al alcance |
 | V | Alternar entre primera y tercera persona |
 | Clic izquierdo / R / F | Disparo o tajo con el kukri / recarga / inspección (la Deagle alterna las dos inspecciones de Archi) |
-| Clic derecho | Silenciador USP-S (también T) / mira AWP (dos aumentos) / estocada con el kukri |
+| Clic derecho | Silenciador USP-S o M4A1-S (también T) / mira en armas compatibles / estocada con el kukri |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
 
 ## Movimiento, escalones y audio
 
 - SAS y Phoenix muestran despegue, descenso y aterrizaje en tercera persona. Las poses se generan para las tres posturas de arma y no empujan el cuerpo físico.
 - El movimiento usa velocidades por arma, aceleración, fricción, salto y límite de dirección en el aire de referencia de CS2. WASD corre por defecto; Shift camina y Ctrl agacha. El salto no se repite al mantener Espacio. El prototipo conserva la cápsula y el ascenso de escalones de hasta 34 cm de Godot para el mapa; no replica subtick ni predicción online.
-- Las seis armas usan el audio de Archi: disparos, desenfundes, recargas, correderas, cerrojo de AWP y rosca de USP-S, según las muestras que contiene el pack. El disparo de la USP-S cambia con el silenciador. Se conservan los sonidos anteriores del cuchillo y del ambiente: Archi no incluye los WAV del kukri.
-- Los modelos conservan las poses del pack de origen. Los guantes Sport Vice se ligan al rig de cada arma; las mangas y los dedos se ajustan para que no se separen durante los gestos.
+- Las armas tienen sonidos de disparo y usan los eventos de audio que se pudieron resolver con muestras de Archi y de otras fuentes, registradas en el manifiesto. Los silenciadores de la USP-S y la M4A1-S cambian el sonido de disparo.
+- Los modelos conservan las secuencias de Archi. La malla compartida de los brazos de Cyberpunk (Silverhand y brazo derecho) usa el esqueleto de cada arma. Las granadas y el C4 del pack no forman parte del inventario jugable.
 
 ## Instalar los activos locales
 
@@ -52,7 +53,7 @@ Para reconstruir los modelos, animaciones, iconos y WAV de primera persona activ
 
 ## Vista texturizada de Puertas Largas
 
-La demo de Arena usa un recorte texturizado de Dust II sobre la colisión real. `B` abre la tienda de práctica (sin saldo ni restricciones de equipo), `1` selecciona la primaria, `2` la secundaria y `3` el kukri. `G` tira el arma de fuego; `E` recoge o intercambia por la que encuentre cerca. El kukri siempre queda en su ranura. El ZIP de escritorio incluye modelos GLB y las mallas de suelo `.vis`; el recorte web se genera aparte. El archivo automático de fuentes de GitHub es distinto.
+La demo de Arena usa un recorte texturizado de Dust II sobre la colisión real. `B` abre la tienda de práctica (sin saldo ni restricciones de equipo), `1` selecciona la primaria, `2` la secundaria y `3` el kukri. `G` tira el arma de fuego; `E` recoge o intercambia por la que encuentre cerca. El kukri siempre queda en su ranura. El proyecto de escritorio usa `.vis` para las armas equipadas y caídas, y GLB para el mapa y los agentes. El recorte web se genera aparte. El archivo automático de fuentes de GitHub es distinto.
 
 Para reproducir el recorte, después de generar `dust2.glb`, los agentes y las armas:
 
@@ -86,6 +87,7 @@ python3 tools/check_godot_assets.py --quality-viewmodels
 godot --headless --path godot --import
 godot --headless --path godot --script res://tests/smoke.gd -- --training
 godot --headless --path godot --script res://tests/smoke.gd -- --require-assets
+# Añadí --require-arsenal después de -- para probar todo el complemento.
 # Después de ejecutar tools/build_godot_preview.py:
 godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview

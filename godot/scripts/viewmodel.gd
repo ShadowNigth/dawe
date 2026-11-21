@@ -15,6 +15,7 @@ var animation_player: AnimationPlayer
 var silencer: Node3D
 var attached := true
 var usp_attached := true
+var m4a1_attached := true
 var events: Dictionary
 var active_clip := ""
 var viewport_3d := SubViewport.new()
@@ -74,7 +75,7 @@ func select(id: String, draw := true) -> void:
 	silencer = null
 	animation_player = null
 	active_clip = ""
-	attached = usp_attached if id == "usp-s" else true
+	attached = silencer_for(id)
 	events = Assets.read_json(id)
 	if model != null:
 		viewport_3d.add_child(model)
@@ -126,6 +127,15 @@ func play(clip: String, force := false) -> bool:
 		silencer_changed.emit()
 	return true
 
+func silencer_for(id: String) -> bool:
+	return usp_attached if id == "usp-s" else m4a1_attached if id == "m4a1-s" else true
+
+func set_silencer_for(id: String, next_state: bool) -> void:
+	if id == "usp-s":
+		usp_attached = next_state
+	elif id == "m4a1-s":
+		m4a1_attached = next_state
+
 func toggle_silencer() -> bool:
 	return silencer != null and play("silencer_detach" if attached else "silencer_attach")
 
@@ -154,7 +164,7 @@ func update_silencer(time: float) -> void:
 	for event in events.get(active_clip, []):
 		if time >= float(event[0]):
 			attached = bool(event[1])
-	usp_attached = attached
+	set_silencer_for(weapon_id, attached)
 	silencer.visible = attached
 
 func _process(_delta: float) -> void:

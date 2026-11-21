@@ -1,13 +1,20 @@
 extends RefCounted
 
+const Arsenal = preload("res://scripts/arsenal.gd")
 const VisualPack = preload("res://scripts/visual_pack.gd")
 const DIR := "res://generated/"
 
 static var preview_cache: Dictionary = {}
 
+static func has_asset(name: String) -> bool:
+	return ResourceLoader.exists(DIR + name + ".glb", "PackedScene") or FileAccess.file_exists(DIR + name + ".vis")
+
 static func instantiate_asset(name: String) -> Node3D:
 	var path := DIR + name + ".glb"
-	if ResourceLoader.exists(path, "PackedScene"):
+	# An update can be extracted over a previous ZIP. Prefer the new
+	# shared-arm weapons over stale GLBs beside them, but not for maps/agents.
+	var shared_weapon := Arsenal.slot(name) >= 0 and FileAccess.file_exists(DIR + "cyberpunk-arms.vis") and FileAccess.file_exists(DIR + name + ".vis")
+	if not shared_weapon and ResourceLoader.exists(path, "PackedScene"):
 		var packed := load(path) as PackedScene
 		if packed != null:
 			return packed.instantiate() as Node3D

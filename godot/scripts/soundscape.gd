@@ -74,12 +74,13 @@ func step(sand: bool) -> void:
 	step_index = step_index % 4 + 1
 	cue("step-%s-%d" % ["sand" if sand else "concrete", step_index], -14.0)
 
-func zoom_sound(zoomed: bool) -> void:
-	var zoom_cues: Dictionary = source_audio.get("zoom", {})
+func zoom_sound(id: String, zoomed: bool) -> void:
+	var bank: Dictionary = source_audio.get("zoom", {})
+	var zoom_cues: Dictionary = bank.get(id, bank)
 	cue(zoom_cues.get("in" if zoomed else "out", "zoom"), -13.0)
 
 func shot_sample(id: String, with_silencer: bool) -> String:
-	var bank := "usp-s-open" if id == "usp-s" and not with_silencer else id
+	var bank := id + "-open" if id in ["usp-s", "m4a1-s"] and not with_silencer else id
 	var choices: Array = source_audio.get("shots", {}).get(bank, [])
 	if not choices.is_empty():
 		var index: int = next_sample.get(bank, 0)
@@ -95,7 +96,7 @@ func start_clip(id: String, clip: String, with_silencer: bool) -> void:
 	pending = action_cues.get(action_key, [])
 	if clip in ["shoot1", "shoot2", "shoot3"]:
 		var shot := shot_sample(id, with_silencer)
-		var level := -18.0 if id == "usp-s" and with_silencer else -9.0
+		var level := -18.0 if id in ["usp-s", "m4a1-s"] and with_silencer else -9.0
 		if not shot.is_empty():
 			pending = [[0.0, shot, level]] + pending
 	next_cue = 0

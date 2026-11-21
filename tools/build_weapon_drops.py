@@ -16,7 +16,7 @@ from import_assets import GODOT_WEAPON_CLIPS, ROOT
 def build(source, output):
     original, model = read(source)
     surfaces = [(mesh['name'], p) for mesh in original['meshes'] for p in mesh['primitives']
-                if original['materials'][p['material']]['name'] in ('weapon-color', 'weapon-scope-color')]
+                if original['materials'][p['material']]['name'].startswith('weapon-')]
     vertices = [model.accessor(p['attributes']['POSITION']) for _, p in surfaces]
     points = np.concatenate(vertices)
     offset = (points.max(axis=0) + points.min(axis=0))*0.5

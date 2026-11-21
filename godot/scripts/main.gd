@@ -143,8 +143,8 @@ func buy_weapon(id: String) -> void:
 	if dropped.has(id):
 		dropped[id].queue_free()
 		dropped.erase(id)
-	if id == "usp-s" and loadout[slot] != id:
-		viewmodel.usp_attached = true
+	if id in Arsenal.SILENCERS and loadout[slot] != id:
+		viewmodel.set_silencer_for(id, true)
 	loadout[slot] = id
 	equip_weapon(id)
 	buy_menu.update_slots(loadout)
@@ -185,7 +185,7 @@ func drop_weapon() -> void:
 
 func spawn_drop(id: String) -> void:
 	var item := DroppedWeapon.new()
-	item.configure(id, viewmodel.usp_attached)
+	item.configure(id, viewmodel.silencer_for(id))
 	add_child(item)
 	var start := actor.global_position + Vector3.UP * (0.61 if actor.crouched else 0.98)
 	var forward := -actor.global_basis.z
@@ -221,8 +221,8 @@ func pickup_weapon() -> void:
 	var outgoing := loadout[slot]
 	if not outgoing.is_empty():
 		spawn_drop(outgoing)
-	if id == "usp-s":
-		viewmodel.usp_attached = nearest.silenced
+	if id in Arsenal.SILENCERS:
+		viewmodel.set_silencer_for(id, nearest.silenced)
 	dropped.erase(id)
 	nearest.queue_free()
 	loadout[slot] = id
@@ -231,7 +231,7 @@ func pickup_weapon() -> void:
 	feedback = Arsenal.label(id) + " recuperada"
 
 func on_clip_started(id: String, clip: String) -> void:
-	soundscape.start_clip(id, clip, viewmodel.usp_attached)
+	soundscape.start_clip(id, clip, viewmodel.silencer_for(id))
 
 func on_footstep() -> void:
 	var feet := actor.global_position
@@ -291,9 +291,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("reload") and viewmodel.play("reload"):
 		set_zoom(0)
 	if event.is_action_pressed("silencer"):
-		if viewmodel.weapon_id == "awp" and event is InputEventMouseButton and viewmodel.is_idle(viewmodel.active_clip):
-			set_zoom((zoom + 1) % 3)
-			soundscape.zoom_sound(zoom > 0)
+		if Arsenal.SCOPE_LEVELS.has(viewmodel.weapon_id) and event is InputEventMouseButton and viewmodel.is_idle(viewmodel.active_clip):
+			set_zoom((zoom + 1) % (1 + int(Arsenal.SCOPE_LEVELS[viewmodel.weapon_id])))
+			soundscape.zoom_sound(viewmodel.weapon_id, zoom > 0)
 		elif viewmodel.weapon_id == "bayonet" and event is InputEventMouseButton:
 			viewmodel.play("heavy_miss1")
 		elif viewmodel.toggle_silencer():
@@ -405,10 +405,12 @@ func refresh_hud() -> void:
 	hint.text = "WASD mover  ·  Shift caminar  ·  Ctrl agachar  ·  Espacio saltar\nB compra  ·  1 primaria / 2 secundaria / 3 cuchillo  ·  Rueda cambia\nM equipo  ·  G tirar  ·  E recoger\nV cámara  ·  F inspección  ·  Tab radar"
 	if viewmodel.weapon_id == "bayonet":
 		hint.text += "\nKukri · Clic izquierdo tajo · Clic derecho estocada"
-	elif viewmodel.weapon_id == "awp":
-		hint.text += "\nR recarga · Clic derecho mira (2 aumentos)"
+	elif Arsenal.SCOPE_LEVELS.has(viewmodel.weapon_id):
+		hint.text += "\nR recarga · Clic derecho mira"
 	elif viewmodel.silencer != null:
 		hint.text += "\nR recarga · " + viewmodel.silencer_hint()
+	elif viewmodel.weapon_id == "zeus":
+		hint.text += "\nZeus · Clic izquierdo descarga"
 	elif not viewmodel.weapon_id.is_empty():
 		hint.text += "\nR recarga"
 	if not feedback.is_empty():

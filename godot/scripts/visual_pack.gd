@@ -5,6 +5,7 @@ extends RefCounted
 var file: FileAccess
 var base := 0
 var materials: Array[StandardMaterial3D] = []
+static var shared_arms: Mesh
 
 func load_scene(path: String) -> PackedScene:
 	file = FileAccess.open(path, FileAccess.READ)
@@ -34,11 +35,39 @@ func load_scene(path: String) -> PackedScene:
 			instance.skeleton = NodePath("../Rig")
 		root.add_child(instance)
 		instance.owner = root
+	if header.has("shared_arms_skin"):
+		var arm_skin := int(header.shared_arms_skin)
+		if arm_skin < 0 or arm_skin >= skins.size() or not append_arms(root, skins[arm_skin]):
+			root.free()
+			file.close()
+			return null
 	var packed := PackedScene.new()
 	var err := packed.pack(root)
 	root.free()
 	file.close()
 	return packed if err == OK else null
+
+func append_arms(root: Node3D, skin: Skin) -> bool:
+	if shared_arms == null:
+		var loader: RefCounted = get_script().new()
+		var pack: PackedScene = loader.load_scene("res://generated/cyberpunk-arms.vis")
+		if pack == null:
+			return false
+		var instance := pack.instantiate()
+		var mesh := instance.get_node_or_null("CyberpunkArms") as MeshInstance3D
+		if mesh != null:
+			shared_arms = mesh.mesh
+		instance.free()
+	if shared_arms == null:
+		return false
+	var arms := MeshInstance3D.new()
+	arms.name = "CyberpunkArms"
+	arms.mesh = shared_arms
+	arms.skin = skin
+	arms.skeleton = NodePath("../Rig")
+	root.add_child(arms)
+	arms.owner = root
+	return true
 
 func bytes(ref: Array) -> PackedByteArray:
 	var offset := int(ref[0])

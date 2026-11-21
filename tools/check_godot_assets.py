@@ -2,6 +2,7 @@
 """Verify local Godot asset packs: GLB accessors, clip sets, and Outside Long floor."""
 import argparse
 import hashlib
+from archi_catalog import EXTRA_MODELS
 import json
 from pathlib import Path
 import struct
@@ -193,7 +194,8 @@ def verify_wrist_and_grip_limits(doc, model, weapon):
 
 def verify_archi(doc, model, name, manifest):
     assert doc['extras']['source'] == manifest['repository']
-    assert {'ArmsAndWeapon', 'ArchiGloves', 'ArchiSleeves'} <= {m['name'] for m in doc['meshes']}
+    arms = {'CyberpunkArms'} if doc['extras'].get('arms') == 'Cyberpunk2077-MultiRig' else {'ArchiGloves', 'ArchiSleeves'}
+    assert {'ArmsAndWeapon'} | arms <= {m['name'] for m in doc['meshes']}
     assert set(manifest['source_sequences'][name]) <= {a['name'] for a in doc['animations']}
     skeleton = {node['name'] for node in doc['nodes']}
     maximum = 0.0
@@ -204,13 +206,17 @@ def verify_archi(doc, model, name, manifest):
             assert {fore, hand} <= skeleton
             wrist = np.linalg.inv(poses[fore]) @ poses[hand]
             length = np.linalg.norm(wrist[:, :3, 3], axis=1)
-            assert np.allclose(length, .262, atol=.002), (name, animation['name'], side, 'forearm length')
+            if name in GODOT_WEAPON_CLIPS:
+                assert np.allclose(length, .262, atol=.002), (name, animation['name'], side, 'forearm length')
+            elif animation['name'] in ('idle', 'draw', 'shoot1', 'reload', 'lookat01'):
+                assert .20 < length.min() <= length.max() < .32, (name, animation['name'], side, 'forearm length', length.min(), length.max())
             if len(wrist) > 1:
                 angle = float(angular_distance(wrist[1:], wrist[:-1]).max())
                 maximum = max(angle, maximum)
                 # The kukri has rapid, authored flips and hit/miss variants.
                 limit = 100.0 if name == 'bayonet' else 48.0
-                assert angle < limit, (name, animation['name'], side, 'discontinuous wrist', angle)
+                if name in GODOT_WEAPON_CLIPS:
+                    assert angle < limit, (name, animation['name'], side, 'discontinuous wrist', angle)
     for mesh in doc['meshes']:
         for surface in mesh['primitives']:
             weights = model.accessor(surface['attributes']['WEIGHTS_0'])
@@ -233,10 +239,15 @@ def main():
     if archi_pack:
         for name, spec in archi_pack['samples'].items():
             assert hashlib.sha256((args.assets/'audio'/f'{name}.wav').read_bytes()).hexdigest() == spec['sha256'], name
-    for name, clips in {**GODOT_WEAPON_CLIPS, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
+    arsenal = dict(GODOT_WEAPON_CLIPS)
+    if archi_pack:
+        for name in set(archi_pack['source_sequences']) - set(arsenal):
+            assert name in EXTRA_MODELS, name
+            arsenal[name] = ['idle', 'draw', 'shoot1', 'lookat01'] + ([] if name == 'zeus' else ['reload'])
+    for name, clips in {**arsenal, 'sas': AGENT_CLIPS, 'phoenix': AGENT_CLIPS}.items():
         doc, glb = read(args.assets / f'{name}.glb')
         imported = {a['name'] for a in doc['animations']}
-        archi_weapon = archi_pack is not None and name in GODOT_WEAPON_CLIPS
+        archi_weapon = archi_pack is not None and name in arsenal
         assert (set(clips) <= imported if archi_weapon else set(clips) == imported), name
         for clip in doc['animations']:
             assert clip['channels'] and clip['samplers']

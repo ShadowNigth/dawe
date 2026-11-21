@@ -1,5 +1,7 @@
 extends SceneTree
 
+const Arsenal = preload("res://scripts/arsenal.gd")
+const Assets = preload("res://scripts/assets.gd")
 const Movement = preload("res://scripts/source_movement.gd")
 
 var failures: PackedStringArray = []
@@ -36,6 +38,8 @@ func run() -> void:
 		bayonet_actions(sw)
 		await jump_animation(sw)
 		await presentation(sw)
+		if "--require-arsenal" in OS.get_cmdline_user_args():
+			await expanded_arsenal(sw)
 	else:
 		check(not sw.world.dust2, "training fixture")
 		await locomotion(sw)
@@ -79,7 +83,8 @@ func weapons(sw: Node) -> void:
 		if sw.soundscape.source_audio.is_empty():
 			check(recoil_keeps_grip(sw.viewmodel.model, player, id == "awp"), "%s wrists follow recoil without twisting off the grip" % id)
 		else:
-			check(sw.viewmodel.model.find_child("ArchiGloves", true, false) is MeshInstance3D, "%s loads the pack's glove mesh" % id)
+			var arms := "CyberpunkArms" if FileAccess.file_exists("res://generated/cyberpunk-arms.vis") else "ArchiGloves"
+			check(sw.viewmodel.model.find_child(arms, true, false) is MeshInstance3D, "%s loads the arm mesh" % id)
 			check(pose_changes(sw.viewmodel.model, player, "shoot1"), "%s uses animated source recoil" % id)
 			for clip: String in sw.soundscape.source_audio.source_sequences[id]:
 				check(player.has_animation(clip), "%s imports Source sequence %s" % [id, clip])
@@ -173,7 +178,8 @@ func bayonet_actions(sw: Node) -> void:
 		check(vm.animation_player.has_animation(clip), "bayonet " + clip)
 	check(has_texture(vm.model), "knife has textured materials")
 	if not sw.soundscape.source_audio.is_empty():
-		check(vm.model.find_child("ArchiGloves", true, false) is MeshInstance3D, "kukri uses the pack's gloves")
+		var arms := "CyberpunkArms" if FileAccess.file_exists("res://generated/cyberpunk-arms.vis") else "ArchiGloves"
+		check(vm.model.find_child(arms, true, false) is MeshInstance3D, "kukri loads the arm mesh")
 		for clip: String in sw.soundscape.source_audio.source_sequences.bayonet:
 			check(vm.animation_player.has_animation(clip), "kukri imports Source sequence " + clip)
 	check(vm.inspect() and vm.active_clip == "lookat01_draw", "inspect during draw plays its authored variant")
@@ -581,3 +587,34 @@ func presentation(sw: Node) -> void:
 	key_press(sw, KEY_G)
 	check(vm.weapon_id == "bayonet" and sw.loadout == ["", "", "bayonet"] and sw.dropped.size() == 3,
 		"dropping both guns leaves only the knife")
+
+func expanded_arsenal(sw: Node) -> void:
+	var vm = sw.viewmodel
+	var ids := Arsenal.PRIMARY + Arsenal.SECONDARY
+	check(ids.size() == 35 and sw.loadout.size() == 3, "full catalogue with two weapon slots plus knife")
+	for id: String in ids:
+		check(sw.buy_menu.cards.has(id) and not sw.buy_menu.cards[id].disabled and sw.buy_menu.cards[id].icon != null,
+			"purchasable with icon: " + id)
+		sw.open_buy_menu()
+		sw.buy_menu.cards[id].pressed.emit()
+		check(sw.buy_menu.visible and sw.loadout[Arsenal.slot(id)] == id and vm.weapon_id == id, "purchased and equipped: " + id)
+		sw.close_buy_menu()
+		var player: AnimationPlayer = vm.animation_player
+		check(player != null and vm.model.find_child("CyberpunkArms", true, false) is MeshInstance3D, id + " shared Cyberpunk rig")
+		if player == null:
+			continue
+		for clip in ["idle", "draw", "shoot1", "lookat01"]:
+			check(player.has_animation(clip), "%s ships %s" % [id, clip])
+		if id != "zeus":
+			check(player.has_animation("reload"), id + " ships reload")
+		player.advance(12.0)
+		check(vm.primary_action(), id + " fires after draw")
+		var sample: String = sw.soundscape.pending[0][1] if not sw.soundscape.pending.is_empty() else ""
+		check(not sample.is_empty() and sw.soundscape.get_sound(sample) != null, id + " uses its own shot sound")
+		if id == "m4a1-s":
+			player.advance(12.0)
+			check(vm.toggle_silencer(), "M4A1-S can remove silencer")
+			player.advance(12.0)
+			check(not vm.attached and vm.silencer != null and not vm.silencer.visible, "rifle silencer is a separate part")
+		Assets.preview_cache.erase(id)
+		await process_frame
