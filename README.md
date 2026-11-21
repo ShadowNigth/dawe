@@ -4,9 +4,9 @@
 
 ## Descargar el proyecto con los activos incluidos
 
-**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-MultiRig-con-activos.zip?raw=true)**
+**[Descargar Dawe para Godot con modelos y texturas (.zip)](downloads/Dawe-Godot-Silverhand-con-activos.zip?raw=true)**
 
-El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, y las versiones mejoradas de la USP-S y la AK-47 con los brazos del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
+El ZIP contiene el proyecto y los activos preparados de Dust II, SAS, Phoenix, y las versiones mejoradas de la USP-S y la AK-47 con el brazo cromado de Silverhand y el implante de la mano derecha del MultiRig. Extraé todo, abrí `godot/project.godot` con Godot 4.5 o posterior, esperá a que se importen los recursos y presioná **F5**. No hace falta ejecutar los scripts de importación para usar el ZIP.
 
 ## Abrir el proyecto
 
@@ -20,7 +20,7 @@ Abrí `godot/project.godot` con **Godot 4.5 o posterior** y presioná **F6** des
 | 3 / 4 | USP-S / AK-47 |
 | V | Alternar entre primera y tercera persona |
 | Clic izquierdo / R / F | Animación de disparo / recarga / inspección |
-| T | Quitar o colocar el silenciador con la USP-S equipada. Si estás en tercera persona, cambia a primera para mostrar la animación. |
+| Clic derecho (o T) | Quitar o colocar el silenciador con la USP-S equipada. Si estás en tercera persona, cambia a primera para mostrar la animación. |
 | Tab / Retroceso / Escape | Mostrar radar con posición y rumbo / volver al inicio / liberar el ratón |
 
 ## Instalar los activos locales
@@ -38,7 +38,7 @@ python3 tools/build_godot_assets.py --basisu /ruta/basisu
 
 Esto genera `godot/generated/` con la **malla de Dust II**, su **colisión independiente**, radar y navegación de referencia. El nivel arranca frente a **Puertas Largas**. También genera **SAS y Phoenix**, cada uno con la pose base y los **36 ciclos** disponibles. Si `godot/generated/` ya existe, el generador no lo pisa: conservá una copia y armá uno nuevo, o elegí otro destino con `--output`.
 
-Para sumar los modelos de primera persona, con **Blender 4.5+**:
+Para sumar los modelos de primera persona, con **Blender 4.5+** (con Cycles habilitado):
 
 ```sh
 for weapon in usp-s ak-47; do
@@ -49,11 +49,11 @@ for weapon in usp-s ak-47; do
 done
 ```
 
-Se hornea el MultiRig con la geometría original de brazos y arma, hasta cuatro pesos por vértice y mapas de color, normales y rugosidad/metalizado del arma, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, y **5 para AK-47**. Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
+Se hornea el material por capas del brazo Silverhand y el implante del MultiRig para Godot. Se conserva la geometría original de brazos y arma, hasta cuatro pesos por vértice y mapas de color, normales y rugosidad/metalizado del arma, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, y **5 para AK-47**. Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
 
 ## Vista texturizada de Puertas Largas
 
-La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con SAS: `2` cambia a Phoenix, `V` muestra los brazos y el arma en primera persona, y `3` / `4` equipan la USP-S y la AK-47. Los materiales y las animaciones se generan de los GLB preparados arriba; están incluidos en el ZIP de `downloads/`. El archivo automático de fuentes de GitHub es distinto.
+La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con SAS: `2` cambia a Phoenix, `V` muestra los brazos y el arma en primera persona, y `3` / `4` equipan la USP-S y la AK-47. Los materiales y las animaciones se generan de los GLB preparados arriba, que están incluidos en el ZIP de `downloads/`. El ZIP para escritorio no duplica los GLB de las armas como `.vis`: Godot usa los GLB importados. El archivo automático de fuentes de GitHub es distinto.
 
 Para reproducir ese recorte en Godot, después de generar `dust2.glb` y los cuatro GLB de agentes y armas:
 

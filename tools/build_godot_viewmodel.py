@@ -11,12 +11,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_viewmodel import (ARM_UNITS, FPS, ROOT, STUDIO, WEAPONS, arm_names, frame_pose,
                              bake_sequence, import_clip, import_gltf, rigid, write_smd)
 from import_assets import WEAPON_CLIPS
+from bake_multirig_material import bake_material
+
+# This mesh references an auxiliary joint absent from the distributed rig.
+JOINT_ALIASES = {'LeftInHandThumb': 'LeftHand'}
 
 
 def linked_weights(vertex, names, ids, default):
     combined = {}
     for weight in vertex.groups:
-        joint = ids.get(names[weight.group], default)
+        joint = ids.get(JOINT_ALIASES.get(names[weight.group], names[weight.group]), default)
         combined[joint] = combined.get(joint, 0.0) + weight.weight
     weights = sorted(((i, v) for i, v in combined.items() if v > 0.00001),
                      key=lambda pair: (-pair[1], pair[0]))[:4]
@@ -63,7 +67,8 @@ def add_deformers(rig, arms, parents):
         wanted = set()
         for obj in objects:
             names = [g.name for g in obj.vertex_groups]
-            wanted.update(names[w.group] for v in obj.data.vertices for w in v.groups if w.weight > 0.00001)
+            wanted.update(JOINT_ALIASES.get(names[w.group], names[w.group])
+                          for v in obj.data.vertices for w in v.groups if w.weight > 0.00001)
         core = set(arm_names(side))
         for name in sorted(wanted - core):
             bone = rig.data.bones[name]
@@ -116,6 +121,13 @@ def build(assets, output, weapon_name):
                         for name in fingers})
         arms[side] = [obj for obj in bpy.data.collections[f'Arm {side}'].objects
                       if obj.type == 'MESH' and obj.name.startswith(('submesh_01_', 'submesh_02_'))]
+    # The reference is the asymmetrical Silverhand look, not two bare arms.
+    silver, = (obj for obj in bpy.data.collections['Silverhand Arm (DISABLE LEFT ARM!)'].objects
+               if obj.type == 'MESH' and obj.data.materials[0].name == 'ml_a0_001_ma_arms__silverhand_masksset')
+    grip, = (obj for obj in bpy.data.collections['a0_004__weapon_grip_device_male'].objects
+             if obj.type == 'MESH')
+    arms['Left'] = [silver]
+    arms['Right'].append(grip)
     support = add_deformers(rig, arms, parents)
     rest = {name: rigid(STUDIO @ ARM_UNITS @ rig.data.bones[name].matrix_local)
             for name in parents if name != 'root'}
@@ -134,6 +146,11 @@ def build(assets, output, weapon_name):
         image_file(bpy.data.images[f'{weapon.material} {suffix}'], output / file)
     materials = {'skin.png': {'metallic': 0., 'roughness': .61}, 'weapon-color.webp': {
         'metallic': 1., 'roughness': 1., 'normal': 'weapon-normal.webp', 'orm': 'weapon-orm.webp'}}
+    arm_textures = {}
+    for obj, name, size in ((silver, 'silverhand', 512), (grip, 'grip-implant', 256)):
+        tex, spec = bake_material(obj, output, name, size)
+        arm_textures[obj.name] = tex
+        materials[tex] = spec
     (output / 'materials.json').write_text(json.dumps(materials), encoding='utf-8')
     anchor = gun.matrix_world.inverted() @ gun.parent.matrix_world @ gun.parent.data.bones['weapon_offset'].head_local
     weapon_pose = STUDIO @ idle['wpn'].matrix_world @ Matrix.Translation(-anchor)
@@ -147,9 +164,9 @@ def build(assets, output, weapon_name):
     write_smd(output / 'weapon_mesh.smd', parents, [rest], weapons)
     for side, objects in arms.items():
         geometry = [tri for obj in objects for tri in triangles(obj, STUDIO @ ARM_UNITS @ obj.matrix_world,
-                                                                  'skin.png', ids, side + 'ForeArm')]
+                                                                  arm_textures.get(obj.name, 'skin.png'), ids, side + 'ForeArm')]
         write_smd(output / f'{side.lower()}_mesh.smd', parents, [rest], geometry)
-        print(f'{side}: {len(geometry)} tris originals', flush=True)
+        print(f'{side}: {len(geometry)} tris originales', flush=True)
     write_smd(output / 'skin_bind.smd', parents, [rest])
     events = {}
     for name in WEAPON_CLIPS[weapon_name]:

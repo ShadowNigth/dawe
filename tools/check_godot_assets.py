@@ -72,6 +72,7 @@ def floor_height(meshes, position):
 
 def verify_quality(doc, model):
     assert len(doc['skins'][0]['joints']) > 90
+    assert {'silverhand', 'grip-implant', 'skin', 'weapon-color'} <= {mat['name'] for mat in doc['materials']}
     skinned_hands = 0
     original_tris = 0
     for mesh in doc['meshes']:
@@ -80,9 +81,9 @@ def verify_quality(doc, model):
             weights = model.accessor(surf['attributes']['WEIGHTS_0'])
             assert np.allclose(weights.sum(axis=1), 1.0, atol=1e-5)
             mat = doc['materials'][surf['material']]
-            if mat['name'] == 'skin':
+            if mat['name'] != 'weapon-color':
                 skinned_hands += np.count_nonzero((weights > 0.00001).sum(axis=1) > 1)
-            else:
+            if mat['name'] != 'skin':
                 assert 'normalTexture' in mat and 'occlusionTexture' in mat
                 assert 'metallicRoughnessTexture' in mat['pbrMetallicRoughness'] and 'TANGENT' in surf['attributes']
     assert skinned_hands > 1000 and original_tris > 25000

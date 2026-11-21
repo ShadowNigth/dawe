@@ -79,14 +79,17 @@ func silencer_actions(sw: Node) -> void:
 	if vm.silencer == null:
 		return
 	sw.actor.third_person = true
-	var key := InputEventKey.new()
-	key.physical_keycode = KEY_T
-	key.pressed = true
-	sw._unhandled_input(key)
-	check(vm.active_clip == "silencer_detach" and not sw.actor.third_person, "T starts detach and reveals the first-person animation")
-	check(not vm.toggle_silencer(), "another press cannot interrupt the clip")
+	var right_click := InputEventMouseButton.new()
+	right_click.button_index = MOUSE_BUTTON_RIGHT
+	right_click.pressed = true
+	sw._unhandled_input(right_click)
+	check(vm.active_clip == "silencer_detach" and not sw.actor.third_person, "right-click starts detach in first person")
+	vm.animation_player.advance(0.10)
+	var position: float = vm.animation_player.current_animation_position
+	sw._unhandled_input(right_click)
+	check(vm.active_clip == "silencer_detach" and is_equal_approx(vm.animation_player.current_animation_position, position), "another press cannot interrupt the clip")
 	var detach_time: float = vm.events.silencer_detach[1][0]
-	vm.animation_player.advance(detach_time - 0.05)
+	vm.animation_player.advance(detach_time - 0.05 - position)
 	vm.update_silencer(vm.animation_player.current_animation_position)
 	check(vm.silencer.visible, "detach keeps the part visible until the authored key")
 	vm.animation_player.advance(0.10)
@@ -94,15 +97,23 @@ func silencer_actions(sw: Node) -> void:
 	check(not vm.silencer.visible, "detach hides the part after the authored key")
 	vm.animation_player.advance(2.0)
 	check(vm.active_clip == "idle" and not vm.silencer.visible, "detach returns to idle, still off")
+	var key := InputEventKey.new()
 	key.physical_keycode = KEY_V
+	key.pressed = true
 	sw._unhandled_input(key)
 	sw._unhandled_input(key)
 	check(not sw.actor.third_person and not vm.silencer.visible, "changing camera preserves the detached state")
 	vm.select("ak-47", false)
-	check(not vm.toggle_silencer(), "AK-47 has no silencer action")
+	sw._unhandled_input(right_click)
+	check(vm.active_clip == "idle", "right-click does not start a silencer action on the AK-47")
 	vm.select("usp-s", false)
 	check(not vm.silencer.visible and not vm.attached, "USP-S remembers the detached state after weapon swap")
-	check(vm.toggle_silencer() and vm.active_clip == "silencer_attach", "toggle plays attach when detached")
+	right_click.pressed = false
+	sw._unhandled_input(right_click)
+	check(vm.active_clip == "idle", "mouse release does not trigger the action")
+	right_click.pressed = true
+	sw._unhandled_input(right_click)
+	check(vm.active_clip == "silencer_attach", "right-click plays attach when detached")
 	var attach_time: float = vm.events.silencer_attach[1][0]
 	vm.animation_player.advance(attach_time - 0.05)
 	vm.update_silencer(vm.animation_player.current_animation_position)

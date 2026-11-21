@@ -101,7 +101,7 @@ func silencer_hint() -> String:
 			return "Colocando silenciador…"
 		"silencer_detach":
 			return "Quitando silenciador…"
-	return "Silenciador puesto · T quitar" if attached else "Silenciador quitado · T colocar"
+	return "Silenciador puesto · Clic derecho quitar" if attached else "Silenciador quitado · Clic derecho colocar"
 
 func on_finished(clip: StringName) -> void:
 	if active_clip != String(clip):

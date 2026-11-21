@@ -51,6 +51,10 @@ func bindings() -> void:
 		var key := InputEventKey.new()
 		key.physical_keycode = keys[action]
 		InputMap.action_add_event(action, key)
+	var right_click := InputEventMouseButton.new()
+	right_click.button_index = MOUSE_BUTTON_RIGHT
+	if not InputMap.action_has_event("silencer", right_click):
+		InputMap.action_add_event("silencer", right_click)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
