@@ -28,12 +28,16 @@ var action_key := ""
 var suppressed := false
 
 func _ready() -> void:
+	# Browser builds use Web Audio samples; Dummy/headless has no sample backend.
+	var playback := AudioServer.PLAYBACK_TYPE_STREAM
+	if OS.has_feature("web") and DisplayServer.get_name() != "headless":
+		playback = AudioServer.PLAYBACK_TYPE_SAMPLE
 	for i in 7:
 		var voice := AudioStreamPlayer.new()
-		voice.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+		voice.playback_type = playback
 		add_child(voice)
 		voices.append(voice)
-	ambience.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
+	ambience.playback_type = playback
 	add_child(ambience)
 	ambience.volume_db = -18.0
 
