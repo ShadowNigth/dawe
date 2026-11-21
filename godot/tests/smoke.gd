@@ -21,11 +21,14 @@ func run() -> void:
 	root.add_child(sw)
 	await ticks(42)
 	check(sw.actor.is_on_floor(), "spawn settle on floor")
-	var imported := "--require-assets" in OS.get_cmdline_user_args()
+	var require_preview := "--require-preview" in OS.get_cmdline_user_args()
+	var imported := require_preview or "--require-assets" in OS.get_cmdline_user_args()
 	if imported:
 		check(sw.world.dust2 and sw.world.collision_count >= 30, "Dust II visual and separate collision")
 		check(sw.radar.texture != null, "Dust II radar")
 		check(sw.actor.global_position.y > -1.0 and sw.actor.global_position.y < 1.0, "spawn resolves near Outside Long")
+		if require_preview:
+			check(sw.world.textured_sector and has_texture(sw.world), "textured Long sector on the real map")
 		agents(sw)
 		await weapons(sw)
 	else:
@@ -51,6 +54,8 @@ func agents(sw: Node) -> void:
 						if player.has_animation("%s_%s_%s" % [gait, direction, hold]):
 							clips += 1
 			check(clips == 36, "%s all 36 locomotion clips" % id)
+			check(has_texture(sw.actor.avatar), "%s has an albedo texture on the visible mesh" % id)
+			check(pose_changes(sw.actor.avatar, player, "run_ne_pistol"), "%s locomotion moves the rig" % id)
 
 func weapons(sw: Node) -> void:
 	for id in ["usp-s", "ak-47"]:
@@ -59,6 +64,8 @@ func weapons(sw: Node) -> void:
 		check(player != null, "%s skinned viewmodel" % id)
 		if player == null:
 			continue
+		check(has_texture(sw.viewmodel.model), "%s has textures on its first-person model" % id)
+		check(pose_changes(sw.viewmodel.model, player, "reload"), "%s reload moves the rig" % id)
 		for clip in ["idle", "draw", "shoot1", "reload", "lookat01"]:
 			check(player.has_animation(clip), "%s %s" % [id, clip])
 		if id == "usp-s":
@@ -71,6 +78,41 @@ func weapons(sw: Node) -> void:
 				sw.viewmodel.update_silencer(0.5)
 				check(sw.viewmodel.active_clip == "silencer_attach" and sw.viewmodel.silencer.visible, "attach event")
 	await ticks(2)
+
+func has_texture(node: Node) -> bool:
+	if node is MeshInstance3D and node.mesh != null:
+		for surface in node.mesh.get_surface_count():
+			var mat := node.get_active_material(surface) as StandardMaterial3D
+			if mat != null and mat.albedo_texture != null:
+				return true
+	for child in node.get_children():
+		if has_texture(child):
+			return true
+	return false
+
+func first_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node
+	for child in node.get_children():
+		var rig := first_skeleton(child)
+		if rig != null:
+			return rig
+	return null
+
+func pose_changes(model: Node, player: AnimationPlayer, clip: String) -> bool:
+	var rig := first_skeleton(model)
+	if rig == null or not player.has_animation(clip):
+		return false
+	player.play(clip, 0.0)
+	player.seek(0.0, true)
+	var initial: Array[Quaternion] = []
+	for i in rig.get_bone_count():
+		initial.append(rig.get_bone_pose_rotation(i))
+	player.seek(player.get_animation(clip).length * 0.47, true)
+	for i in rig.get_bone_count():
+		if absf(initial[i].dot(rig.get_bone_pose_rotation(i))) < 0.999:
+			return true
+	return false
 
 func locomotion(sw: Node) -> void:
 	Input.action_press("forward")

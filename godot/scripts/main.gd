@@ -19,9 +19,10 @@ var mouse_ready_at := 0
 
 func _ready() -> void:
 	bindings()
-	training_only = "--training" in OS.get_cmdline_user_args()
+	var args := OS.get_cmdline_user_args()
+	training_only = "--training" in args
 	add_child(world)
-	world.build(training_only, "--collision-preview" in OS.get_cmdline_user_args())
+	world.build(training_only, "--collision-preview" in args, "--visual-preview" in args or "--require-preview" in args)
 	spawn = World.LONG_SPAWN if world.dust2 else Vector3(0, 0.12, 2)
 	actor.position = spawn
 	add_child(actor)
@@ -162,6 +163,8 @@ func refresh_hud() -> void:
 	var area := "DUST II" if world.dust2 else "PISTA LOCAL · Dust II sin importar"
 	if world.collision_view:
 		area = "DUST II · Malla física"
+	elif world.textured_sector:
+		area = "DUST II · Puertas Largas"
 	var camera_mode := "3.ª persona" if actor.third_person else "1.ª persona"
 	status.text = "DAWE  /  %s  ·  %s  ·  %s  ·  %s" % [area, actor.agent_id.to_upper(), viewmodel.weapon_id.to_upper(), camera_mode]
 	hint.text = "WASD mover  ·  Shift correr  ·  Ctrl agachar  ·  Espacio saltar\n1/2 agente  ·  3/4 arma  ·  V cámara  ·  R recarga  ·  F inspección  ·  T silenciador  ·  Tab radar"

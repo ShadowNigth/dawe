@@ -1,6 +1,7 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled;
 
+uniform vec4 textured_bounds = vec4(0.0);
 varying vec3 world_point;
 
 void vertex() {
@@ -8,6 +9,10 @@ void vertex() {
 }
 
 void fragment() {
+	if (world_point.x > textured_bounds.x && world_point.z > textured_bounds.y &&
+		world_point.x < textured_bounds.z && world_point.z < textured_bounds.w) {
+		discard;
+	}
 	vec3 n = normalize(cross(dFdx(world_point), dFdy(world_point)));
 	float flatness = abs(n.y);
 	float light = 0.62 + abs(dot(n, normalize(vec3(0.35, 0.9, 0.15)))) * 0.38;

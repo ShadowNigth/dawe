@@ -112,12 +112,13 @@ def texture_png(data, mime, basis, work, limit):
         temp = Path(temp)
         if mime == 'image/ktx2':
             (temp / 'source.ktx2').write_bytes(data)
-            # BC3/ETC2 exports a combined RGBA PNG when the source has alpha.
+            # Basis 1.16 writes combined RGBA with no separate face field.
             env = dict(os.environ, OMP_NUM_THREADS='1')
             res = subprocess.run([basis, '-unpack', '-file', 'source.ktx2', '-format_only', '1',
                                   '-no_ktx'], cwd=temp, env=env, capture_output=True, text=True)
-            paths = list(temp.glob('*_unpacked_rgba_*_0_0_0000.png'))
-            paths = paths or list(temp.glob('*_unpacked_rgb_*_0_0_0000.png'))
+            paths = sorted(temp.glob('*_unpacked_rgba_*_0_0_0000.png'))
+            paths = paths or sorted(temp.glob('*_unpacked_rgba_*_0_0000.png'))
+            paths = paths or sorted(temp.glob('*_unpacked_rgb_*_0_0_0000.png'))
             if res.returncode or not paths:
                 raise RuntimeError(f'Basis no pudo decodificar {key[:12]}: {res.stdout[-800:]} {res.stderr[-800:]}')
             data = paths[0].read_bytes()

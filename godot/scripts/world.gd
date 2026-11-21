@@ -7,15 +7,24 @@ const LONG_SPAWN := Vector3(15.67, 0.18, -3.19)
 var dust2 := false
 var collision_count := 0
 var collision_view := false
+var textured_sector := false
 var diagnostic_material: ShaderMaterial
 
-func build(force_training: bool, inspect_collision: bool) -> void:
+func build(force_training: bool, inspect_collision: bool, prefer_sector := false) -> void:
 	if not force_training:
-		var visual: Node3D = null if inspect_collision else Assets.instantiate_asset("dust2")
+		var visual: Node3D = null if inspect_collision or prefer_sector else Assets.instantiate_asset("dust2")
+		if visual == null and not inspect_collision:
+			visual = Assets.instantiate_asset("dust2-long")
+			textured_sector = visual != null
+		if textured_sector:
+			var b: Array = visual.get_meta("visual_bounds")
+			diagnostic_material = ShaderMaterial.new()
+			diagnostic_material.shader = DIAGNOSTIC_SHADER
+			diagnostic_material.set_shader_parameter("textured_bounds", Vector4(b[0], b[1], b[2], b[3]))
 		if visual != null or inspect_collision:
 			var parts := DustCollision.read_cache()
 			for part in parts:
-				add_faces(part.faces, part.layer, inspect_collision)
+				add_faces(part.faces, part.layer, inspect_collision or textured_sector)
 			# Older local generated directories still work with Godot's glTF importer.
 			if collision_count == 0 and visual != null:
 				var physics: Node3D = Assets.instantiate_asset("dust2-physics")
@@ -32,6 +41,7 @@ func build(force_training: bool, inspect_collision: bool) -> void:
 			elif visual != null:
 				visual.free()
 	if not dust2:
+		textured_sector = false
 		training()
 	lighting()
 
@@ -132,5 +142,5 @@ func lighting() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-63, -31, 0)
 	sun.light_energy = 0.56
-	sun.shadow_enabled = not collision_view
+	sun.shadow_enabled = not collision_view and not textured_sector
 	add_child(sun)

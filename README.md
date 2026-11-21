@@ -45,6 +45,19 @@ done
 
 Se reaprovecha el horneado del MultiRig, **sin compilar MDL ni BSP**. Cada arma entra como GLB con su esqueleto y el conjunto de clips disponible: **7 para USP-S**, incluido montar/desmontar el silenciador, y **5 para AK-47**. Abrí o volvé a importar el proyecto y dejá terminar la importación de Godot antes de ejecutarlo. Para forzar la pista local aun con Dust II instalado: `godot --path godot -- --training`.
 
+## Vista texturizada de Puertas Largas
+
+La demo de Arena muestra un recorte de la **malla visual texturizada** de Dust II sobre la colisión real. Arranca con SAS: `2` cambia a Phoenix, `V` muestra los brazos y el arma en primera persona, y `3` / `4` equipan la USP-S y la AK-47. Los materiales y las animaciones se generan de los GLB preparados arriba; no se incluyen en el ZIP de fuentes.
+
+Para reproducir ese recorte en Godot, después de generar `dust2.glb` y los cuatro GLB de agentes y armas:
+
+```sh
+python3 tools/build_godot_preview.py
+godot --path godot -- --visual-preview
+```
+
+El generador crea paquetes `.vis` en `godot/generated/`, que el juego también puede leer sin importar los GLB en el editor. Conservan la malla, las texturas base, los esqueletos y los clips de esta demo. Fuera del recorte texturizado, el mapa sigue en modo de diagnóstico; el arranque habitual usa el Dust II visual completo cuando su GLB ya fue importado.
+
 ## Recorrer Puertas Largas con la colisión real
 
 El modo de diagnóstico muestra **la misma geometría física que usa el controlador**, sin depender de importar las texturas, los agentes ni el modelo visual en el editor. Usa una malla simplificada en apariencia, no en colisión. La preparación normal ya genera el archivo; si tenés un `godot/generated/` de la versión anterior:
@@ -68,10 +81,11 @@ python3 tools/check_godot_assets.py
 godot --headless --path godot --import
 godot --headless --path godot --script res://tests/smoke.gd -- --training
 godot --headless --path godot --script res://tests/smoke.gd -- --require-assets
+godot --headless --path godot --script res://tests/smoke.gd -- --require-preview
 godot --headless --path godot --script res://tests/dust2_route.gd -- --collision-preview
 ```
 
-La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los bancos de animación y los dos eventos del silenciador.
+La prueba de la pista comprueba paredes, rampas, agachado, salto, aterrizaje y que la cámara se retraiga al rozar una esquina. `dust2_route.gd` usa el mismo controlador e input de movimiento que el jugador en la malla física: no teletransporta entre puntos. La prueba con activos comprueba el punto inicial de Dust II, que se cargue la geometría de colisión, los materiales, los bancos de animación, el cambio de pose de los huesos y los dos eventos del silenciador. `--require-preview` comprueba además el recorte texturizado de la demo.
 
 ## Más información
 

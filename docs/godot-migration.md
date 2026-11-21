@@ -9,13 +9,19 @@
 
 ## Límites visuales y de juego
 
-El escenario es el **export estático** de Dust II, no un port completo de CS2. No se replican los shaders ni los datos de iluminación del cliente de cs2go (incluidos canales de color auxiliares, sondas y efectos especiales). Las texturas del mapa se reducen a 256 px por lado de forma predeterminada; `--texture-size` permite cambiarlo si hay memoria disponible. Las puertas dinámicas, objetos rompibles, lógica de sitios, audio y reglas de ronda no están implementados. Las armas sólo se ven en primera persona; no hay armas acopladas a los agentes. El recorrido físico de Puertas Largas, el foso y la rampa de A ya está comprobado. Falta revisar la apariencia del mapa completo y los modelos en el editor de escritorio, y conectar las animaciones a munición y a un campo de tiro local.
+El escenario es el **export estático** de Dust II, no un port completo de CS2. No se replican los shaders ni los datos de iluminación del cliente de cs2go (incluidos canales de color auxiliares, sondas y efectos especiales). Las texturas del mapa se reducen a 256 px por lado de forma predeterminada; `--texture-size` permite cambiarlo si hay memoria disponible. Las puertas dinámicas, objetos rompibles, lógica de sitios, audio y reglas de ronda no están implementados. Las armas sólo se ven en primera persona; no hay armas acopladas a los agentes. El recorrido físico de Puertas Largas, el foso y la rampa de A ya está comprobado. La integración se comprobó en el recorte del navegador. Falta revisar la apariencia del mapa completo en el editor de escritorio y conectar las animaciones a munición y a un campo de tiro local.
+
+## Vista texturizada en el navegador
+
+La demo incluye el patio exterior, el paso bajo los arcos y el entorno de la salida de Puertas Largas. `tools/build_godot_preview.py` toma las superficies visuales del recorte a escala real, hornea el ajuste UV de cada material, conserva los PNG con alfa y usa la misma colisión que el modo de diagnóstico. Los paquetes `.vis` contienen datos preparados para `ArrayMesh`, `Skeleton3D`, `Skin` y `AnimationPlayer`: sirven para la demo sin el importador de glTF del editor. El modo de escritorio sigue dando prioridad a las escenas importadas de los GLB originales si están disponibles.
+
+El recorte usa texturas base, opacidad y recorte alfa, no todos los mapas PBR ni los shaders de origen. Incluye las dos mallas de agente y sus 36 ciclos por personaje, y los modelos de primera persona de USP-S y AK-47 con las manos y sus clips. No se agregaron armas en tercera persona ni disparos con daño.
 
 ## Prueba de Puertas Largas, foso y rampa de A
 
 `tools/build_dust2_collision.py` transforma las caras de `dust2-physics.glb` a coordenadas del mundo, las separa en celdas espaciales de 12 m sin recortar los triángulos y distingue los límites invisibles de jugador. Los límites siguen siendo sólidos para el personaje, pero no aparecen como paredes en la vista de diagnóstico ni bloquean la cámara. Los triángulos degenerados no se agregan. El modo de escritorio usa este mismo archivo si está disponible y conserva la importación del GLB físico como compatibilidad con paquetes antiguos.
 
-`godot/tests/dust2_route.gd` conduce al personaje a partir de puntos tomados de la navegación de cs2go. Pasa las dos puertas, baja hasta aproximadamente **−4,56 m**, vuelve a Larga y alcanza la rampa de A a **+1,69 m**. No requiere saltos ni comprobaciones visuales subjetivas para validar el trayecto; no llega hasta la plataforma del sitio ni valida el resto del mapa. El diagnóstico del navegador muestra las superficies físicas con sombreado y cuadrícula, deliberadamente sin las texturas y modelos del juego.
+`godot/tests/dust2_route.gd` conduce al personaje a partir de puntos tomados de la navegación de cs2go. Pasa las dos puertas, baja hasta aproximadamente **−4,56 m**, vuelve a Larga y alcanza la rampa de A a **+1,69 m**. No requiere saltos ni comprobaciones visuales subjetivas para validar el trayecto; no llega hasta la plataforma del sitio ni valida el resto del mapa. La opción `--collision-preview` conserva el modo anterior, con las superficies físicas sombreadas y una cuadrícula.
 
 ## Procedencia y límites de uso
 
