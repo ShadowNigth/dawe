@@ -85,6 +85,28 @@ def tangent_frame(pos, uv, normals, indices):
     return np.column_stack((tangent, sign))
 
 
+def repair_normals(vertices):
+    """Omit invisible, collapsed faces; recover a face normal for usable ones."""
+    corners = np.array([geom for _, geom in vertices]).reshape(-1, 3, 8)
+    missing = np.linalg.norm(corners[:, :, 3:6], axis=2) < 1e-8
+    if not missing.any():
+        return vertices
+    kept = []
+    for i, triangle in enumerate(corners):
+        face = vertices[i*3:i*3+3]
+        if not missing[i].any():
+            kept.extend(face)
+            continue
+        points = triangle[:, :3]
+        normal = np.cross(points[1] - points[0], points[2] - points[0])
+        length = np.linalg.norm(normal)
+        if length < 1e-6:  # SMD square inches, below visible area.
+            continue
+        for (links, data), broken in zip(face, missing[i]):
+            kept.append((links, (*data[:3], *(normal / length), *data[6:])) if broken else (links, data))
+    return kept
+
+
 def build(folder, weapon, output):
     names, frames, _ = read_smd(folder / ('idle1.smd' if weapon == 'bayonet' else 'idle.smd'))
     initial = frames[0]
@@ -159,7 +181,7 @@ def build(folder, weapon, output):
             # Keep indexed vertices; don't collapse UV, normal or weight seams.
             unique = {}
             indexes = []
-            for vertex in vertices:
+            for vertex in repair_normals(vertices):
                 indexes.append(unique.setdefault(vertex, len(unique)))
             vertices = list(unique)
             joints = np.zeros((len(vertices), 4), dtype=np.uint16)
