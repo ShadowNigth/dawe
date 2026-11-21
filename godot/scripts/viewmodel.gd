@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 signal silencer_changed
+signal clip_started(id: String, clip: String)
 
 const Assets = preload("res://scripts/assets.gd")
 const Actor = preload("res://scripts/actor.gd")
@@ -65,7 +66,7 @@ func select(id: String, draw := true) -> void:
 	if model != null:
 		viewport_3d.remove_child(model)
 		model.queue_free()
-	model = Assets.instantiate_asset(id)
+	model = Assets.instantiate_asset(id) if not id.is_empty() else null
 	silencer = null
 	animation_player = null
 	active_clip = ""
@@ -109,6 +110,7 @@ func play(clip: String, force := false) -> bool:
 	animation_player.play(clip, 0.05)
 	animation_player.advance(0.0)
 	update_silencer(0.0)
+	clip_started.emit(weapon_id, clip)
 	if clip.begins_with("silencer_"):
 		silencer_changed.emit()
 	return true

@@ -1,5 +1,9 @@
 extends CharacterBody3D
 
+signal stepped(quiet: bool)
+signal took_off
+signal touched_down
+
 const Assets = preload("res://scripts/assets.gd")
 const AgentJump = preload("res://scripts/agent_jump.gd")
 const DustCollision = preload("res://scripts/dust_collision.gd")
@@ -46,6 +50,7 @@ var eye_height := STAND_EYE
 var step_camera_offset := 0.0
 var step_hit := KinematicCollision3D.new()
 var landing_time := 0.0
+var step_distance := 0.0
 
 func _ready() -> void:
 	collision_layer = DustCollision.PLAYER
@@ -138,6 +143,7 @@ func reset_motion() -> void:
 	eye_height = DUCK_EYE if crouched else STAND_EYE
 	step_camera_offset = 0.0
 	landing_time = 0.0
+	step_distance = 0.0
 
 # Add speed only in the requested direction. Air steering can redirect a jump
 # without forcibly interpolating away the velocity the player took off with.
@@ -174,6 +180,8 @@ func _physics_process(delta: float) -> void:
 		queued_jump = 0.0
 		floor_grace = 0.0
 		velocity.y = JUMP_SPEED
+		step_distance = 0.0
+		took_off.emit()
 	elif not grounded:
 		velocity.y -= GRAVITY * delta
 	if grounded and not jumping and not wish.is_zero_approx():
@@ -185,6 +193,14 @@ func _physics_process(delta: float) -> void:
 		landing_time = 0.0
 	elif not grounded and before_slide_y < -2.1:
 		landing_time = 0.23
+		touched_down.emit()
+	if grounded and is_on_floor() and not jumping and not wish.is_zero_approx():
+		var travel := get_position_delta()
+		step_distance += Vector2(travel.x, travel.z).length()
+		var stride := 0.64 if crouched else 1.30 if running else 0.92
+		if step_distance >= stride:
+			step_distance = fmod(step_distance, stride)
+			stepped.emit(crouched)
 	update_avatar(running)
 	update_camera(delta)
 

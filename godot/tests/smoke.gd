@@ -33,6 +33,7 @@ func run() -> void:
 		await weapons(sw)
 		bayonet_actions(sw)
 		await jump_animation(sw)
+		await presentation(sw)
 	else:
 		check(not sw.world.dust2, "training fixture")
 		await locomotion(sw)
@@ -111,9 +112,9 @@ func silencer_actions(sw: Node) -> void:
 	check(not sw.actor.third_person and not vm.silencer.visible, "changing camera preserves the detached state")
 	var wheel := InputEventMouseButton.new()
 	wheel.pressed = true
-	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
 	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "ak-47" and sw.actor.stance == "rifle" and vm.active_clip == "draw", "scroll up equips the AK-47 and plays draw")
+	check(vm.weapon_id == "ak-47" and sw.actor.stance == "rifle" and vm.active_clip == "draw", "scroll down equips the AK-47 and plays draw")
 	wheel.pressed = false
 	sw._unhandled_input(wheel)
 	check(vm.weapon_id == "ak-47", "wheel release does not switch slots")
@@ -121,9 +122,9 @@ func silencer_actions(sw: Node) -> void:
 	sw._unhandled_input(right_click)
 	check(vm.active_clip == "idle", "right-click does not start a silencer action on the AK-47")
 	wheel.pressed = true
-	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
 	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "usp-s" and sw.actor.stance == "pistol" and vm.active_clip == "draw", "scroll down equips the USP-S and plays draw")
+	check(vm.weapon_id == "usp-s" and sw.actor.stance == "pistol" and vm.active_clip == "draw", "scroll up equips the USP-S and plays draw")
 	check(not vm.silencer.visible and not vm.attached, "USP-S remembers the detached state after scrolling")
 	vm.animation_player.advance(5.0)
 	right_click.pressed = false
@@ -144,7 +145,7 @@ func silencer_actions(sw: Node) -> void:
 
 func bayonet_actions(sw: Node) -> void:
 	var vm = sw.viewmodel
-	vm.select("ak-47", false)
+	vm.select("usp-s", false)
 	var wheel := InputEventMouseButton.new()
 	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
 	wheel.pressed = true
@@ -174,7 +175,7 @@ func bayonet_actions(sw: Node) -> void:
 	vm.animation_player.advance(2.0)
 	check(vm.inspect() and vm.active_clip == "lookat01", "normal bayonet inspection")
 	sw._unhandled_input(wheel)
-	check(vm.weapon_id == "usp-s", "weapon wheel wraps from bayonet back to USP-S")
+	check(vm.weapon_id == "ak-47", "weapon wheel wraps from bayonet back to the rifle")
 
 
 func has_texture(node: Node) -> bool:
@@ -423,3 +424,75 @@ func jump_animation(sw: Node) -> void:
 	check(player.current_clip == "jump/land_knife", "landing uses the contact pose")
 	await ticks(20)
 	check(not player.current_clip.begins_with("jump/"), "landing returns to ground locomotion")
+
+func key_press(sw: Node, code: Key) -> void:
+	var key := InputEventKey.new()
+	key.physical_keycode = code
+	key.pressed = true
+	sw._unhandled_input(key)
+
+func presentation(sw: Node) -> void:
+	var vm = sw.viewmodel
+	key_press(sw, KEY_M)
+	check(sw.team_menu.visible and not sw.actor.is_physics_processing(), "M opens and pauses the team selector")
+	check(sw.team_menu.load_logo("ct") != null and sw.team_menu.load_logo("t") != null, "both team logos load")
+	var previous: String = vm.weapon_id
+	key_press(sw, KEY_2)
+	check(vm.weapon_id == previous, "team modal blocks weapon hotkeys")
+	sw.team_menu.chose.emit("phoenix")
+	check(sw.actor.agent_id == "phoenix" and not sw.team_menu.visible and sw.actor.is_physics_processing(), "T selection loads Phoenix and resumes movement")
+	key_press(sw, KEY_M)
+	sw.team_menu.chose.emit("sas")
+	check(sw.actor.agent_id == "sas", "CT selection loads SAS")
+	check(sw.soundscape.ambience.stream != null, "wind ambience loads")
+	for cue in ["ak47-1", "ak47_clipin", "usp1-muted", "knife-swing1", "knife-stab", "step-concrete-1", "step-sand-4", "jump", "land"]:
+		var stream: AudioStream = sw.soundscape.get_sound(cue)
+		check(stream != null and stream.get_length() > 0.03, "sound loads: " + cue)
+	key_press(sw, KEY_2)
+	key_press(sw, KEY_1)
+	check(vm.weapon_id == "ak-47" and sw.actor.agent_id == "sas", "1 equips rifle, not a team")
+	check(sw.soundscape.action_key == "ak-47/draw", "equipping the rifle schedules its equip sound")
+	vm.animation_player.advance(2.0)
+	vm.primary_action()
+	check(sw.soundscape.action_key == "ak-47/shoot1" and sw.soundscape.next_cue == 1, "a shot triggers its cue immediately")
+	vm.animation_player.advance(2.0)
+	vm.play("reload")
+	sw.soundscape.follow_clip("ak-47", "reload", 0.55)
+	check(sw.soundscape.next_cue == 2, "reload sound follows separate magazine cues")
+	key_press(sw, KEY_2)
+	check(vm.weapon_id == "usp-s" and sw.actor.agent_id == "sas", "2 equips pistol, not a team")
+	key_press(sw, KEY_3)
+	check(vm.weapon_id == "bayonet", "3 equips knife")
+	key_press(sw, KEY_2)
+	vm.usp_attached = false
+	vm.attached = false
+	var sand := Color("bda17e")
+	sw.world.block(Vector3(120, -0.3, 120), Vector3(12, 0.6, 12), sand)
+	sw.actor.global_position = Vector3(120, 0.05, 120)
+	sw.actor.rotation.y = 0.0
+	sw.actor.reset_motion()
+	await ticks(12)
+	var steps_before: int = sw.soundscape.step_index
+	Input.action_press("forward")
+	await ticks(27)
+	Input.action_release("forward")
+	check(sw.soundscape.step_index != steps_before, "actual walking distance triggers a footstep")
+	key_press(sw, KEY_G)
+	check(sw.dropped.has("usp-s") and vm.weapon_id != "usp-s", "G leaves the selected gun on the ground and equips another slot")
+	key_press(sw, KEY_2)
+	check(vm.weapon_id != "usp-s", "a dropped slot cannot be equipped")
+	if not sw.dropped.has("usp-s"):
+		return
+	var item: RigidBody3D = sw.dropped["usp-s"]
+	check(item.find_child("ArmsAndWeapon", true, false) != null, "dropped gun has a static textured mesh without arms")
+	var start: Vector3 = item.global_position
+	await ticks(36)
+	check(item.global_position.distance_to(start) > 0.4 and item.global_position.y > -0.35, "dropped gun moves physically without falling through floor")
+	sw.actor.global_position = Vector3(item.global_position.x, 0.05, item.global_position.z + 0.46)
+	await ticks(4)
+	key_press(sw, KEY_E)
+	check(not sw.dropped.has("usp-s") and vm.weapon_id == "usp-s" and not vm.attached, "E recovers the nearby gun and its silencer state")
+	key_press(sw, KEY_G)
+	key_press(sw, KEY_G)
+	key_press(sw, KEY_G)
+	check(vm.weapon_id.is_empty() and sw.dropped.size() == 3, "dropping all slots leaves empty hands")
